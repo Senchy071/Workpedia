@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//media/production/projects/rag-workspace/**)",
+      "Bash(source:*)",
+      "Bash(tree:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

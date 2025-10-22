@@ -1,0 +1,8 @@
+● ollama.service - Ollama Service
+     Loaded: loaded (/etc/systemd/system/ollama.service; enabled; vendor preset: enabled)
+    Drop-In: /etc/systemd/system/ollama.service.d
+             └─override.conf
+     Active: activating (auto-restart) (Result: exit-code) since Tue 2025-10-21 23:06:58 CEST; 529ms ago
+    Process: 14892 ExecStart=/usr/local/bin/ollama serve [0;1;31m(code=exited, status=1/FAILURE)[0m
+   Main PID: 14892 (code=exited, status=1/FAILURE)
+        CPU: 12ms
