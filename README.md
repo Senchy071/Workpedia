@@ -6,14 +6,14 @@ Property accounting and supply
 
 1. Activate the environment:
    ```bash
-   source /media/production/projects/rag-workspace/venv/bin/activate
+   source /media/development/projects/rag-workspace/venv/bin/activate
    ```
 
 2. Add your documents to the `documents/` directory
 
 3. Run the app:
    ```bash
-   cd /media/production/projects/rag-workspace/projects/workpedia
+   cd /media/development/projects/rag-workspace/projects/workpedia
    python app.py
    ```
 

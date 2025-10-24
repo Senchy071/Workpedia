@@ -10,8 +10,8 @@ Workpedia is a RAG (Retrieval-Augmented Generation) application for property acc
 
 **Python Environment Setup:**
 ```bash
-source /media/production/projects/rag-workspace/venv/bin/activate
-cd /media/production/projects/workpedia
+source /media/development/projects/rag-workspace/venv/bin/activate
+cd /media/development/projects/workpedia
 ```
 
 **Running the Application:**

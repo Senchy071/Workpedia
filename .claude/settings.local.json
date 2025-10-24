@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Read(//media/production/projects/rag-workspace/**)",
+      "Read(//media/development/projects/rag-workspace/**)",
       "Bash(source:*)",
       "Bash(tree:*)"
     ],
