@@ -14,6 +14,7 @@ from docling.datamodel.pipeline_options import (
     AcceleratorDevice,
 )
 from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
+from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 
 from config.config import PROJECT_ROOT
 
@@ -38,6 +39,7 @@ class DocumentParser:
         do_table_structure: bool = True,
         num_threads: int = 8,
         device: AcceleratorDevice = AcceleratorDevice.AUTO,
+        backend: str = "v2",  # "v2" or "pypdfium"
     ):
         """
         Initialize document parser with optimized settings.
@@ -47,11 +49,13 @@ class DocumentParser:
             do_table_structure: Enable table structure recognition
             num_threads: Number of threads for processing
             device: Accelerator device (AUTO uses GPU if available)
+            backend: PDF backend to use ("v2" for DoclingParseV2, "pypdfium" for PyPdfium)
         """
         self.do_ocr = do_ocr
         self.do_table_structure = do_table_structure
         self.num_threads = num_threads
         self.device = device
+        self.backend = backend
 
         # Initialize converter (will be recreated as needed)
         self._converter: Optional[DocumentConverter] = None
@@ -60,7 +64,8 @@ class DocumentParser:
 
         logger.info(
             f"DocumentParser initialized: OCR={do_ocr}, "
-            f"TableStructure={do_table_structure}, Threads={num_threads}, Device={device}"
+            f"TableStructure={do_table_structure}, Threads={num_threads}, "
+            f"Device={device}, Backend={backend}"
         )
 
     def _get_converter(self) -> DocumentConverter:
@@ -80,6 +85,14 @@ class DocumentParser:
                 # Allow garbage collection
                 self._converter = None
 
+            # Select backend
+            if self.backend == "pypdfium":
+                backend_class = PyPdfiumDocumentBackend
+                backend_name = "PyPdfiumDocumentBackend"
+            else:
+                backend_class = DoclingParseV2DocumentBackend
+                backend_name = "DoclingParseV2DocumentBackend"
+
             # Configure PDF pipeline options
             pipeline_options = PdfPipelineOptions(
                 do_ocr=self.do_ocr,
@@ -90,18 +103,18 @@ class DocumentParser:
                 ),
             )
 
-            # Create converter with optimized backend
+            # Create converter with selected backend
             self._converter = DocumentConverter(
                 format_options={
                     InputFormat.PDF: PdfFormatOption(
                         pipeline_options=pipeline_options,
-                        backend=DoclingParseV2DocumentBackend,
+                        backend=backend_class,
                     )
                 }
             )
 
             self._docs_processed = 0
-            logger.info("DocumentConverter created with DoclingParseV2Backend")
+            logger.info(f"DocumentConverter created with {backend_name}")
 
         return self._converter
 

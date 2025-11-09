@@ -2,6 +2,7 @@
 """Demo script for testing document parser functionality."""
 
 import logging
+import sys
 from pathlib import Path
 
 from processors.pdf_processor import PDFProcessor
@@ -109,26 +110,53 @@ def main():
     print("\nWorkpedia Document Parser Demo")
     print("Phase 2: Document Processing Foundation\n")
 
-    # Check for documents in data/input/
-    input_dir = Path("data/input")
-
-    if not input_dir.exists():
-        print(f"Input directory not found: {input_dir}")
-        print("\nTo test the parser, add documents to the data/input/ directory:")
-        print("  - PDF files (.pdf)")
-        print("  - Word documents (.docx)")
-        print("  - HTML files (.html)")
-        print("  - Images (.png, .jpg, .jpeg, .tiff)")
-        print("\nExample:")
-        print("  cp /path/to/your/document.pdf data/input/")
-        return
-
-    # Find supported documents
     supported_extensions = [
         ".pdf", ".docx", ".doc", ".html", ".htm",
         ".png", ".jpg", ".jpeg", ".tiff", ".tif"
     ]
 
+    # Check if a file path was provided as command-line argument
+    if len(sys.argv) > 1:
+        input_path = Path(sys.argv[1])
+
+        if not input_path.exists():
+            print(f"Error: File not found: {input_path}")
+            return
+
+        if not input_path.is_file():
+            print(f"Error: Not a file: {input_path}")
+            return
+
+        if input_path.suffix.lower() not in supported_extensions:
+            print(f"Error: Unsupported file type: {input_path.suffix}")
+            print(f"Supported formats: {', '.join(supported_extensions)}")
+            return
+
+        # Process single file
+        print(f"Processing single file: {input_path.name} ({input_path.stat().st_size / (1024*1024):.2f} MB)\n")
+        process_document(input_path)
+        print("\nDemo complete!")
+        return
+
+    # No command-line argument, process directory
+    input_dir = Path("data/input")
+
+    if not input_dir.exists():
+        print(f"Input directory not found: {input_dir}")
+        print("\nUsage:")
+        print(f"  {sys.argv[0]} <path-to-document>  # Process single file")
+        print(f"  {sys.argv[0]}                     # Process all files in data/input/")
+        print("\nTo test the parser, either:")
+        print("  1. Provide a file path: python3 demo_parser.py /path/to/document.pdf")
+        print("  2. Add documents to the data/input/ directory")
+        print("\nSupported formats:")
+        print("  - PDF files (.pdf)")
+        print("  - Word documents (.docx)")
+        print("  - HTML files (.html)")
+        print("  - Images (.png, .jpg, .jpeg, .tiff)")
+        return
+
+    # Find supported documents
     documents = [
         f for f in input_dir.iterdir()
         if f.is_file() and f.suffix.lower() in supported_extensions
@@ -137,6 +165,7 @@ def main():
     if not documents:
         print(f"No supported documents found in {input_dir}")
         print(f"\nSupported formats: {', '.join(supported_extensions)}")
+        print(f"\nUsage: {sys.argv[0]} <path-to-document>")
         return
 
     print(f"Found {len(documents)} document(s):\n")

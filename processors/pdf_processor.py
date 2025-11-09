@@ -25,6 +25,8 @@ class PDFProcessor:
         self,
         enable_ocr: bool = False,
         enable_table_structure: bool = True,
+        backend: str = "v2",
+        auto_fallback: bool = True,
     ):
         """
         Initialize PDF processor.
@@ -32,16 +34,21 @@ class PDFProcessor:
         Args:
             enable_ocr: Enable OCR for scanned PDFs
             enable_table_structure: Enable table structure recognition
+            backend: PDF backend to use ("v2" or "pypdfium")
+            auto_fallback: Automatically fallback to pypdfium on v2 crashes
         """
         self.enable_ocr = enable_ocr
         self.enable_table_structure = enable_table_structure
+        self.backend = backend
+        self.auto_fallback = auto_fallback
 
         self.doc_handler = LargeDocumentHandler()
         self.analyzer = StructureAnalyzer()
 
         logger.info(
             f"PDFProcessor initialized: OCR={enable_ocr}, "
-            f"TableStructure={enable_table_structure}"
+            f"TableStructure={enable_table_structure}, Backend={backend}, "
+            f"AutoFallback={auto_fallback}"
         )
 
     def process(
@@ -52,7 +59,7 @@ class PDFProcessor:
         progress_callback: Optional[callable] = None,
     ) -> Dict[str, Any]:
         """
-        Process PDF document.
+        Process PDF document with automatic fallback on crashes.
 
         Args:
             file_path: Path to PDF file
@@ -70,12 +77,84 @@ class PDFProcessor:
 
         logger.info(f"Processing PDF: {file_path.name}")
 
-        # Process document (handles large docs automatically)
-        result = self.doc_handler.process(
-            file_path=file_path,
-            metadata=metadata,
-            progress_callback=progress_callback,
-        )
+        result = None
+        last_error = None
+
+        # Try with configured backend first
+        try:
+            result = self.doc_handler.process(
+                file_path=file_path,
+                metadata=metadata,
+                progress_callback=progress_callback,
+                backend=self.backend,
+                do_ocr=self.enable_ocr,
+                do_table_structure=self.enable_table_structure,
+            )
+        except Exception as e:
+            last_error = e
+            logger.error(f"Processing failed with {self.backend} backend: {e}")
+
+            # Try fallback strategies if enabled
+            if self.auto_fallback and self.backend == "v2":
+                logger.info("Attempting fallback strategies...")
+
+                # Strategy 1: Try pypdfium backend
+                try:
+                    logger.info("Fallback 1: Trying PyPdfium backend")
+                    result = self.doc_handler.process(
+                        file_path=file_path,
+                        metadata=metadata,
+                        progress_callback=progress_callback,
+                        backend="pypdfium",
+                        do_ocr=self.enable_ocr,
+                        do_table_structure=self.enable_table_structure,
+                    )
+                    logger.info("✓ PyPdfium backend succeeded")
+                    if result:
+                        result["metadata"]["fallback_used"] = "pypdfium"
+                except Exception as e2:
+                    logger.error(f"PyPdfium backend failed: {e2}")
+
+                    # Strategy 2: Disable table structure and retry with v2
+                    if not result and self.enable_table_structure:
+                        try:
+                            logger.info("Fallback 2: Disabling table structure, retrying v2")
+                            result = self.doc_handler.process(
+                                file_path=file_path,
+                                metadata=metadata,
+                                progress_callback=progress_callback,
+                                backend="v2",
+                                do_ocr=self.enable_ocr,
+                                do_table_structure=False,
+                            )
+                            logger.info("✓ V2 without table structure succeeded")
+                            if result:
+                                result["metadata"]["fallback_used"] = "v2_no_tables"
+                        except Exception as e3:
+                            logger.error(f"V2 without table structure failed: {e3}")
+
+                    # Strategy 3: Disable table structure with pypdfium
+                    if not result and self.enable_table_structure:
+                        try:
+                            logger.info("Fallback 3: PyPdfium without table structure")
+                            result = self.doc_handler.process(
+                                file_path=file_path,
+                                metadata=metadata,
+                                progress_callback=progress_callback,
+                                backend="pypdfium",
+                                do_ocr=self.enable_ocr,
+                                do_table_structure=False,
+                            )
+                            logger.info("✓ PyPdfium without table structure succeeded")
+                            if result:
+                                result["metadata"]["fallback_used"] = "pypdfium_no_tables"
+                        except Exception as e4:
+                            logger.error(f"PyPdfium without table structure failed: {e4}")
+
+        # If all strategies failed, raise the last error
+        if result is None:
+            logger.error("All processing strategies failed")
+            raise last_error if last_error else RuntimeError("Processing failed")
 
         # Perform structure analysis if requested
         if analyze_structure:

@@ -140,6 +140,9 @@ class LargeDocumentHandler:
         file_path: Path,
         metadata: Optional[Dict[str, Any]] = None,
         progress_callback: Optional[callable] = None,
+        backend: str = "v2",
+        do_ocr: bool = False,
+        do_table_structure: bool = True,
     ) -> Dict[str, Any]:
         """
         Process large PDF in chunks.
@@ -148,6 +151,9 @@ class LargeDocumentHandler:
             file_path: Path to PDF file
             metadata: Optional additional metadata
             progress_callback: Optional callback(chunk_num, total_chunks, info)
+            backend: PDF backend to use
+            do_ocr: Enable OCR
+            do_table_structure: Enable table structure
 
         Returns:
             Merged document result
@@ -195,7 +201,11 @@ class LargeDocumentHandler:
 
             try:
                 # Create fresh parser for each chunk to prevent memory leaks
-                parser = DocumentParser()
+                parser = DocumentParser(
+                    do_ocr=do_ocr,
+                    do_table_structure=do_table_structure,
+                    backend=backend
+                )
 
                 # Note: Docling's DocumentConverter doesn't support page ranges
                 # directly in the API, so we'll process the whole document
@@ -253,6 +263,9 @@ class LargeDocumentHandler:
         file_path: Path | str,
         metadata: Optional[Dict[str, Any]] = None,
         progress_callback: Optional[callable] = None,
+        backend: str = "v2",
+        do_ocr: bool = False,
+        do_table_structure: bool = True,
     ) -> Dict[str, Any]:
         """
         Process document (automatically handles large documents).
@@ -261,6 +274,9 @@ class LargeDocumentHandler:
             file_path: Path to document
             metadata: Optional additional metadata
             progress_callback: Optional progress callback for large documents
+            backend: PDF backend to use ("v2" or "pypdfium")
+            do_ocr: Enable OCR
+            do_table_structure: Enable table structure recognition
 
         Returns:
             Parsed document result
@@ -271,10 +287,17 @@ class LargeDocumentHandler:
             is_large, _ = self.is_large_document(file_path)
 
             if is_large:
-                return self.process_large_pdf(file_path, metadata, progress_callback)
+                return self.process_large_pdf(
+                    file_path, metadata, progress_callback,
+                    backend, do_ocr, do_table_structure
+                )
 
         # Standard processing for small documents or non-PDFs
-        parser = DocumentParser()
+        parser = DocumentParser(
+            do_ocr=do_ocr,
+            do_table_structure=do_table_structure,
+            backend=backend
+        )
         result = parser.parse(file_path, metadata)
         parser.cleanup()
 
