@@ -14,11 +14,12 @@ from docling.datamodel.pipeline_options import (
     AcceleratorDevice,
     VlmPipelineOptions,
 )
+from docling.datamodel.settings import settings
 from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
 from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 from docling.pipeline.vlm_pipeline import VlmPipeline
 
-from config.config import PROJECT_ROOT, VLM_MODEL, VLM_BATCH_SIZE
+from config.config import PROJECT_ROOT, VLM_MODEL, VLM_PAGE_BATCH_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -96,10 +97,13 @@ class DocumentParser:
                 # VLM Pipeline (Granite-Docling or SmolDocling)
                 logger.info(f"Creating VLM pipeline with {self.vlm_model} model")
 
-                vlm_options = VlmPipelineOptions(
-                    model=self.vlm_model,
-                    batch_size=VLM_BATCH_SIZE,
-                )
+                # Configure global performance settings for batch processing
+                settings.perf.page_batch_size = VLM_PAGE_BATCH_SIZE
+                logger.info(f"Set page_batch_size to {VLM_PAGE_BATCH_SIZE} for parallel processing")
+
+                # Use default Granite-Docling transformers configuration
+                # The model selection is handled by the default VlmPipelineOptions
+                vlm_options = VlmPipelineOptions()
 
                 self._converter = DocumentConverter(
                     format_options={
@@ -110,7 +114,7 @@ class DocumentParser:
                     }
                 )
 
-                backend_name = f"VlmPipeline ({self.vlm_model})"
+                backend_name = f"VlmPipeline (granite-docling-258M with batch_size={VLM_PAGE_BATCH_SIZE})"
 
             else:
                 # Standard PDF backends (v2 or pypdfium)
