@@ -21,3 +21,8 @@ CHROMA_COLLECTION_NAME = "workpedia_docs"
 # Chunking settings
 CHUNK_SIZE = 512  # tokens
 CHUNK_OVERLAP = 0.15  # 15% overlap
+
+# Large document handling settings
+MAX_PAGES_SINGLE_PASS = 100  # Process in chunks if more pages
+MAX_FILE_SIZE_MB = 50  # Process in chunks if larger
+CHUNK_SIZE_PAGES = 75  # Pages per chunk for large documents
