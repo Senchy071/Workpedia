@@ -221,6 +221,15 @@ class LargeDocumentHandler:
 
                 logger.info(f"Chunk {idx}/{len(chunks)} processed successfully")
 
+                # Since Docling doesn't support page ranges and processes the whole document,
+                # if we got a successful result with all pages, we're done
+                if result and result.get("metadata", {}).get("pages", 0) == num_pages:
+                    logger.info(
+                        f"First chunk successfully processed all {num_pages} pages. "
+                        f"Skipping remaining chunks (Docling processes entire document)."
+                    )
+                    break
+
             except Exception as e:
                 logger.error(f"Failed to process chunk {idx}: {e}")
                 # Continue with other chunks
