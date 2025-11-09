@@ -1,6 +1,6 @@
 # Critical Fixes and VLM Integration
 
-## Granite-Docling VLM for Structure Extraction ✓ IMPLEMENTED
+## Granite-Docling VLM for Structure Extraction ✗ TOO SLOW (Abandoning for Option 1)
 
 **Released**: September 17, 2025 by IBM
 **Purpose**: Document structure preservation for RAG systems
@@ -62,14 +62,27 @@ INFO: DocumentConverter created with VlmPipeline (granite_docling)
 INFO: Processing document...
 ```
 
-### First Run Notes
+### Test Results and Performance Issues
 
-**The first time you run VLM**, it will:
-1. Download the Granite-Docling model from Hugging Face (~500MB)
-2. Load the model into memory
-3. Then process your document
+**VLM Testing (242-page NATO handbook):**
+- Initial test with `batch_size=64`: CUDA OOM (22.55GB/24GB used)
+- Fixed with `batch_size=8`: Avoided OOM (8.5GB/24GB used)
+- **Performance**: 40+ minutes for 242 pages (~10 sec/page) - **UNACCEPTABLE**
 
-This initial download is **one-time only**. Subsequent runs will be much faster.
+**Root Cause - CPU Bottleneck:**
+- GPU utilization drops to 0-10% intermittently
+- Pattern: GPU processes batch → 100% usage → CPU prepares next batch → 0% GPU
+- **Issues identified:**
+  - Image tiling: Granite breaks pages into tiles → massive token counts
+  - No prefetching: Single-threaded - can't load next batch while GPU works
+  - PDF I/O: Reading/rendering pages to images is CPU-bound
+  - Transformers backend: Inefficient compared to vLLM server
+
+**VLM Conclusion:**
+- Works correctly (extracts structure)
+- Too slow for production use (~10 sec/page)
+- Setting up vLLM server would help but adds complexity
+- **Decision**: Switch to Option 1 (Split-Process-Merge with V2)
 
 ### Manual Backend Selection
 
@@ -83,6 +96,31 @@ processor = PDFProcessor(backend="pypdfium")
 # Force V2 (fast, may crash on large docs)
 processor = PDFProcessor(backend="v2")
 ```
+
+---
+
+## Option 1: Split-Process-Merge with V2 Backend (PLANNED)
+
+**Approach:**
+1. **Split**: Use PyPDF2 to split large PDF into smaller files (50-75 pages each)
+2. **Process**: Process each split with V2 backend in sequence
+3. **Merge**: Combine DoclingDocument objects back together
+4. **Cleanup**: Delete temporary split files
+
+**Advantages:**
+- V2 backend: Fast (~1-2 sec/page) with excellent structure extraction
+- Avoids V2 crashes by keeping chunks small
+- No GPU memory issues (V2 uses ~5-8GB VRAM)
+- Simple, reliable, maintainable
+- **Expected time**: 5-10 minutes for 242-page document (vs 40+ min with VLM)
+
+**Implementation Plan:**
+1. Create `core/pdf_splitter.py` to split PDFs by page ranges
+2. Update `core/large_doc_handler.py` to use split-process-merge for V2 backend
+3. Add DoclingDocument merge logic in `core/doc_merger.py`
+4. Test with 242-page NATO handbook and 873-page math reference
+
+**Status**: To be implemented
 
 ---
 
