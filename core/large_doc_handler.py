@@ -12,6 +12,7 @@ from config.config import (
     MAX_PAGES_SINGLE_PASS,
     MAX_FILE_SIZE_MB,
     CHUNK_SIZE_PAGES,
+    VLM_MODEL,
 )
 from core.parser import DocumentParser
 
@@ -143,6 +144,7 @@ class LargeDocumentHandler:
         backend: str = "v2",
         do_ocr: bool = False,
         do_table_structure: bool = True,
+        vlm_model: str = VLM_MODEL,
     ) -> Dict[str, Any]:
         """
         Process large PDF in chunks.
@@ -151,9 +153,10 @@ class LargeDocumentHandler:
             file_path: Path to PDF file
             metadata: Optional additional metadata
             progress_callback: Optional callback(chunk_num, total_chunks, info)
-            backend: PDF backend to use
+            backend: PDF backend to use ("v2", "pypdfium", or "vlm")
             do_ocr: Enable OCR
             do_table_structure: Enable table structure
+            vlm_model: VLM model to use if backend="vlm"
 
         Returns:
             Merged document result
@@ -204,7 +207,8 @@ class LargeDocumentHandler:
                 parser = DocumentParser(
                     do_ocr=do_ocr,
                     do_table_structure=do_table_structure,
-                    backend=backend
+                    backend=backend,
+                    vlm_model=vlm_model
                 )
 
                 # Note: Docling's DocumentConverter doesn't support page ranges
@@ -275,6 +279,7 @@ class LargeDocumentHandler:
         backend: str = "v2",
         do_ocr: bool = False,
         do_table_structure: bool = True,
+        vlm_model: str = VLM_MODEL,
     ) -> Dict[str, Any]:
         """
         Process document (automatically handles large documents).
@@ -283,9 +288,10 @@ class LargeDocumentHandler:
             file_path: Path to document
             metadata: Optional additional metadata
             progress_callback: Optional progress callback for large documents
-            backend: PDF backend to use ("v2" or "pypdfium")
+            backend: PDF backend to use ("v2", "pypdfium", or "vlm")
             do_ocr: Enable OCR
             do_table_structure: Enable table structure recognition
+            vlm_model: VLM model to use if backend="vlm"
 
         Returns:
             Parsed document result
@@ -298,14 +304,15 @@ class LargeDocumentHandler:
             if is_large:
                 return self.process_large_pdf(
                     file_path, metadata, progress_callback,
-                    backend, do_ocr, do_table_structure
+                    backend, do_ocr, do_table_structure, vlm_model
                 )
 
         # Standard processing for small documents or non-PDFs
         parser = DocumentParser(
             do_ocr=do_ocr,
             do_table_structure=do_table_structure,
-            backend=backend
+            backend=backend,
+            vlm_model=vlm_model
         )
         result = parser.parse(file_path, metadata)
         parser.cleanup()

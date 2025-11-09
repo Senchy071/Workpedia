@@ -30,3 +30,8 @@ CHUNK_SIZE_PAGES = 75  # Pages per chunk for large documents
 # Large document detection for backend selection
 LARGE_DOC_PAGE_THRESHOLD = 200  # Use stable backend if >200 pages
 LARGE_DOC_SIZE_MB_THRESHOLD = 20  # Use stable backend if >20MB
+
+# VLM (Vision-Language Model) settings for document structure extraction
+USE_VLM_FOR_LARGE_DOCS = True  # Use Granite-Docling VLM for large documents
+VLM_MODEL = "granite_docling"  # Options: "granite_docling", "smol_docling"
+VLM_BATCH_SIZE = 1  # Process pages in batches (1 for large docs)

@@ -12,11 +12,13 @@ from docling.datamodel.pipeline_options import (
     PdfPipelineOptions,
     AcceleratorOptions,
     AcceleratorDevice,
+    VlmPipelineOptions,
 )
 from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
 from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+from docling.pipeline.vlm_pipeline import VlmPipeline
 
-from config.config import PROJECT_ROOT
+from config.config import PROJECT_ROOT, VLM_MODEL, VLM_BATCH_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,8 @@ class DocumentParser:
         do_table_structure: bool = True,
         num_threads: int = 8,
         device: AcceleratorDevice = AcceleratorDevice.AUTO,
-        backend: str = "v2",  # "v2" or "pypdfium"
+        backend: str = "v2",  # "v2", "pypdfium", or "vlm"
+        vlm_model: str = VLM_MODEL,
     ):
         """
         Initialize document parser with optimized settings.
@@ -49,13 +52,15 @@ class DocumentParser:
             do_table_structure: Enable table structure recognition
             num_threads: Number of threads for processing
             device: Accelerator device (AUTO uses GPU if available)
-            backend: PDF backend to use ("v2" for DoclingParseV2, "pypdfium" for PyPdfium)
+            backend: PDF backend to use ("v2", "pypdfium", or "vlm")
+            vlm_model: VLM model to use if backend="vlm" (e.g., "granite_docling")
         """
         self.do_ocr = do_ocr
         self.do_table_structure = do_table_structure
         self.num_threads = num_threads
         self.device = device
         self.backend = backend
+        self.vlm_model = vlm_model
 
         # Initialize converter (will be recreated as needed)
         self._converter: Optional[DocumentConverter] = None
@@ -66,6 +71,7 @@ class DocumentParser:
             f"DocumentParser initialized: OCR={do_ocr}, "
             f"TableStructure={do_table_structure}, Threads={num_threads}, "
             f"Device={device}, Backend={backend}"
+            + (f", VLM_Model={vlm_model}" if backend == "vlm" else "")
         )
 
     def _get_converter(self) -> DocumentConverter:
@@ -85,33 +91,55 @@ class DocumentParser:
                 # Allow garbage collection
                 self._converter = None
 
-            # Select backend
-            if self.backend == "pypdfium":
-                backend_class = PyPdfiumDocumentBackend
-                backend_name = "PyPdfiumDocumentBackend"
+            # Create converter based on backend type
+            if self.backend == "vlm":
+                # VLM Pipeline (Granite-Docling or SmolDocling)
+                logger.info(f"Creating VLM pipeline with {self.vlm_model} model")
+
+                vlm_options = VlmPipelineOptions(
+                    model=self.vlm_model,
+                    batch_size=VLM_BATCH_SIZE,
+                )
+
+                self._converter = DocumentConverter(
+                    format_options={
+                        InputFormat.PDF: PdfFormatOption(
+                            pipeline_cls=VlmPipeline,
+                            pipeline_options=vlm_options,
+                        )
+                    }
+                )
+
+                backend_name = f"VlmPipeline ({self.vlm_model})"
+
             else:
-                backend_class = DoclingParseV2DocumentBackend
-                backend_name = "DoclingParseV2DocumentBackend"
+                # Standard PDF backends (v2 or pypdfium)
+                if self.backend == "pypdfium":
+                    backend_class = PyPdfiumDocumentBackend
+                    backend_name = "PyPdfiumDocumentBackend"
+                else:
+                    backend_class = DoclingParseV2DocumentBackend
+                    backend_name = "DoclingParseV2DocumentBackend"
 
-            # Configure PDF pipeline options
-            pipeline_options = PdfPipelineOptions(
-                do_ocr=self.do_ocr,
-                do_table_structure=self.do_table_structure,
-                accelerator_options=AcceleratorOptions(
-                    num_threads=self.num_threads,
-                    device=self.device,
-                ),
-            )
+                # Configure PDF pipeline options
+                pipeline_options = PdfPipelineOptions(
+                    do_ocr=self.do_ocr,
+                    do_table_structure=self.do_table_structure,
+                    accelerator_options=AcceleratorOptions(
+                        num_threads=self.num_threads,
+                        device=self.device,
+                    ),
+                )
 
-            # Create converter with selected backend
-            self._converter = DocumentConverter(
-                format_options={
-                    InputFormat.PDF: PdfFormatOption(
-                        pipeline_options=pipeline_options,
-                        backend=backend_class,
-                    )
-                }
-            )
+                # Create converter with selected backend
+                self._converter = DocumentConverter(
+                    format_options={
+                        InputFormat.PDF: PdfFormatOption(
+                            pipeline_options=pipeline_options,
+                            backend=backend_class,
+                        )
+                    }
+                )
 
             self._docs_processed = 0
             logger.info(f"DocumentConverter created with {backend_name}")

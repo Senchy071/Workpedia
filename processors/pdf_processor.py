@@ -8,7 +8,12 @@ from pypdf import PdfReader
 
 from core.large_doc_handler import LargeDocumentHandler
 from core.analyzer import StructureAnalyzer
-from config.config import LARGE_DOC_PAGE_THRESHOLD, LARGE_DOC_SIZE_MB_THRESHOLD
+from config.config import (
+    LARGE_DOC_PAGE_THRESHOLD,
+    LARGE_DOC_SIZE_MB_THRESHOLD,
+    USE_VLM_FOR_LARGE_DOCS,
+    VLM_MODEL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,23 +60,27 @@ class PDFProcessor:
             f"AutoFallback={auto_fallback}"
         )
 
-    def _should_use_stable_backend(self, file_path: Path) -> tuple[bool, str]:
+    def _select_backend_for_document(self, file_path: Path) -> tuple[str, str]:
         """
-        Determine if document should use stable backend based on size.
+        Select appropriate backend based on document size.
 
         Args:
             file_path: Path to PDF file
 
         Returns:
-            Tuple of (use_stable, reason)
+            Tuple of (backend_name, reason)
         """
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
 
         # Check file size threshold
         if file_size_mb > LARGE_DOC_SIZE_MB_THRESHOLD:
             reason = f"File size {file_size_mb:.1f}MB > {LARGE_DOC_SIZE_MB_THRESHOLD}MB"
-            logger.info(f"Large document detected: {reason} → using pypdfium backend")
-            return True, reason
+            if USE_VLM_FOR_LARGE_DOCS:
+                logger.info(f"Large document detected: {reason} → using VLM ({VLM_MODEL})")
+                return "vlm", reason
+            else:
+                logger.info(f"Large document detected: {reason} → using pypdfium backend")
+                return "pypdfium", reason
 
         # Check page count threshold
         try:
@@ -80,17 +89,25 @@ class PDFProcessor:
 
             if num_pages > LARGE_DOC_PAGE_THRESHOLD:
                 reason = f"{num_pages} pages > {LARGE_DOC_PAGE_THRESHOLD} pages"
-                logger.info(f"Large document detected: {reason} → using pypdfium backend")
-                return True, reason
+                if USE_VLM_FOR_LARGE_DOCS:
+                    logger.info(f"Large document detected: {reason} → using VLM ({VLM_MODEL})")
+                    return "vlm", reason
+                else:
+                    logger.info(f"Large document detected: {reason} → using pypdfium backend")
+                    return "pypdfium", reason
 
             logger.info(
                 f"Small document: {num_pages} pages, {file_size_mb:.1f}MB → using v2 backend"
             )
-            return False, f"{num_pages} pages, {file_size_mb:.1f}MB"
+            return "v2", f"{num_pages} pages, {file_size_mb:.1f}MB"
 
         except Exception as e:
             logger.warning(f"Could not read PDF metadata: {e}, using size-based decision")
-            return file_size_mb > LARGE_DOC_SIZE_MB_THRESHOLD, f"size: {file_size_mb:.1f}MB"
+            if file_size_mb > LARGE_DOC_SIZE_MB_THRESHOLD:
+                backend = "vlm" if USE_VLM_FOR_LARGE_DOCS else "pypdfium"
+                return backend, f"size: {file_size_mb:.1f}MB"
+            else:
+                return "v2", f"size: {file_size_mb:.1f}MB"
 
     def process(
         self,
@@ -121,8 +138,7 @@ class PDFProcessor:
         # Auto-select backend based on document size
         selected_backend = self.backend
         if self.backend == "auto":
-            use_stable, reason = self._should_use_stable_backend(file_path)
-            selected_backend = "pypdfium" if use_stable else "v2"
+            selected_backend, reason = self._select_backend_for_document(file_path)
             logger.info(f"Auto-selected backend: {selected_backend} ({reason})")
 
         result = None
@@ -137,6 +153,7 @@ class PDFProcessor:
                 backend=selected_backend,
                 do_ocr=self.enable_ocr,
                 do_table_structure=self.enable_table_structure,
+                vlm_model=VLM_MODEL,
             )
         except Exception as e:
             last_error = e
@@ -156,6 +173,7 @@ class PDFProcessor:
                         backend="pypdfium",
                         do_ocr=self.enable_ocr,
                         do_table_structure=self.enable_table_structure,
+                        vlm_model=VLM_MODEL,
                     )
                     logger.info("✓ PyPdfium backend succeeded")
                     if result:
@@ -174,6 +192,7 @@ class PDFProcessor:
                                 backend="v2",
                                 do_ocr=self.enable_ocr,
                                 do_table_structure=False,
+                                vlm_model=VLM_MODEL,
                             )
                             logger.info("✓ V2 without table structure succeeded")
                             if result:
@@ -192,6 +211,7 @@ class PDFProcessor:
                                 backend="pypdfium",
                                 do_ocr=self.enable_ocr,
                                 do_table_structure=False,
+                                vlm_model=VLM_MODEL,
                             )
                             logger.info("✓ PyPdfium without table structure succeeded")
                             if result:
