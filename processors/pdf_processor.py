@@ -4,8 +4,11 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+from pypdf import PdfReader
+
 from core.large_doc_handler import LargeDocumentHandler
 from core.analyzer import StructureAnalyzer
+from config.config import LARGE_DOC_PAGE_THRESHOLD, LARGE_DOC_SIZE_MB_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +28,7 @@ class PDFProcessor:
         self,
         enable_ocr: bool = False,
         enable_table_structure: bool = True,
-        backend: str = "v2",
+        backend: str = "auto",
         auto_fallback: bool = True,
     ):
         """
@@ -34,7 +37,8 @@ class PDFProcessor:
         Args:
             enable_ocr: Enable OCR for scanned PDFs
             enable_table_structure: Enable table structure recognition
-            backend: PDF backend to use ("v2" or "pypdfium")
+            backend: PDF backend to use ("auto", "v2", or "pypdfium")
+                    "auto" = v2 for small docs, pypdfium for large docs
             auto_fallback: Automatically fallback to pypdfium on v2 crashes
         """
         self.enable_ocr = enable_ocr
@@ -50,6 +54,43 @@ class PDFProcessor:
             f"TableStructure={enable_table_structure}, Backend={backend}, "
             f"AutoFallback={auto_fallback}"
         )
+
+    def _should_use_stable_backend(self, file_path: Path) -> tuple[bool, str]:
+        """
+        Determine if document should use stable backend based on size.
+
+        Args:
+            file_path: Path to PDF file
+
+        Returns:
+            Tuple of (use_stable, reason)
+        """
+        file_size_mb = file_path.stat().st_size / (1024 * 1024)
+
+        # Check file size threshold
+        if file_size_mb > LARGE_DOC_SIZE_MB_THRESHOLD:
+            reason = f"File size {file_size_mb:.1f}MB > {LARGE_DOC_SIZE_MB_THRESHOLD}MB"
+            logger.info(f"Large document detected: {reason} → using pypdfium backend")
+            return True, reason
+
+        # Check page count threshold
+        try:
+            pdf_reader = PdfReader(str(file_path))
+            num_pages = len(pdf_reader.pages)
+
+            if num_pages > LARGE_DOC_PAGE_THRESHOLD:
+                reason = f"{num_pages} pages > {LARGE_DOC_PAGE_THRESHOLD} pages"
+                logger.info(f"Large document detected: {reason} → using pypdfium backend")
+                return True, reason
+
+            logger.info(
+                f"Small document: {num_pages} pages, {file_size_mb:.1f}MB → using v2 backend"
+            )
+            return False, f"{num_pages} pages, {file_size_mb:.1f}MB"
+
+        except Exception as e:
+            logger.warning(f"Could not read PDF metadata: {e}, using size-based decision")
+            return file_size_mb > LARGE_DOC_SIZE_MB_THRESHOLD, f"size: {file_size_mb:.1f}MB"
 
     def process(
         self,
@@ -77,25 +118,32 @@ class PDFProcessor:
 
         logger.info(f"Processing PDF: {file_path.name}")
 
+        # Auto-select backend based on document size
+        selected_backend = self.backend
+        if self.backend == "auto":
+            use_stable, reason = self._should_use_stable_backend(file_path)
+            selected_backend = "pypdfium" if use_stable else "v2"
+            logger.info(f"Auto-selected backend: {selected_backend} ({reason})")
+
         result = None
         last_error = None
 
-        # Try with configured backend first
+        # Try with selected backend first
         try:
             result = self.doc_handler.process(
                 file_path=file_path,
                 metadata=metadata,
                 progress_callback=progress_callback,
-                backend=self.backend,
+                backend=selected_backend,
                 do_ocr=self.enable_ocr,
                 do_table_structure=self.enable_table_structure,
             )
         except Exception as e:
             last_error = e
-            logger.error(f"Processing failed with {self.backend} backend: {e}")
+            logger.error(f"Processing failed with {selected_backend} backend: {e}")
 
             # Try fallback strategies if enabled
-            if self.auto_fallback and self.backend == "v2":
+            if self.auto_fallback and selected_backend == "v2":
                 logger.info("Attempting fallback strategies...")
 
                 # Strategy 1: Try pypdfium backend
@@ -155,6 +203,12 @@ class PDFProcessor:
         if result is None:
             logger.error("All processing strategies failed")
             raise last_error if last_error else RuntimeError("Processing failed")
+
+        # Add backend selection info to metadata
+        if "backend_selected" not in result["metadata"]:
+            result["metadata"]["backend_selected"] = selected_backend
+            if self.backend == "auto":
+                result["metadata"]["backend_auto_selected"] = True
 
         # Perform structure analysis if requested
         if analyze_structure:

@@ -25,27 +25,61 @@ python3 demo_parser.py
 
 ## Issue 2: Docling "Corrupted Double-Linked List" Crash ✓ FIXED
 
-**Problem**: Docling's DoclingParseV2Backend crashes on large/complex PDFs with memory corruption error.
+**Problem**: Docling's DoclingParseV2Backend crashes on large/complex PDFs (e.g., 873-page reference books) with memory corruption error.
 
 **Root Cause**: Known bug in Docling's V2 backend under load (see: docling-project/docling-serve #389)
 
-**Solution**: Multi-level fallback strategy with automatic retry:
+**Solution**: Intelligent backend auto-selection + multi-level fallback
 
-### Fallback Strategies (in order)
+### Auto-Selection Logic (NEW)
 
-1. **PyPdfium Backend** - More stable, slower backend
-   ```python
-   PDFProcessor(backend="pypdfium")
-   ```
+The processor now **automatically detects large documents** and selects the appropriate backend:
 
-2. **Disable Table Structure** - Disable problematic table recognition
-   ```python
-   PDFProcessor(enable_table_structure=False)
-   ```
+- **Large Documents** (>200 pages OR >20MB): Use **PyPdfium** backend (stable)
+- **Small Documents** (<200 pages AND <20MB): Use **V2** backend (fast)
 
-3. **Combined Fallback** - PyPdfium without table structure
+**Thresholds** (config/config.py):
+```python
+LARGE_DOC_PAGE_THRESHOLD = 200  # pages
+LARGE_DOC_SIZE_MB_THRESHOLD = 20  # MB
+```
 
-4. **Automatic Retry** - PDFProcessor tries all strategies automatically when `auto_fallback=True` (default)
+**Why This Works**:
+- 873-page math reference → Automatically uses PyPdfium → No crash
+- 10-page report → Uses V2 → Fast processing
+- No manual configuration needed!
+
+### Backend Selection Behavior
+
+```python
+# Default behavior - automatic selection (RECOMMENDED)
+processor = PDFProcessor()  # backend="auto" by default
+
+# Processing flow:
+# 1. Check document size (pages and MB)
+# 2. If large (>200 pages OR >20MB): Use PyPdfium
+# 3. If small: Use V2 backend
+# 4. If V2 crashes: Automatic fallback to PyPdfium
+```
+
+**Example Logs**:
+```
+# For 873-page PDF:
+INFO: Large document detected: 873 pages > 200 pages → using pypdfium backend
+INFO: Auto-selected backend: pypdfium (873 pages > 200 pages)
+
+# For 50-page PDF:
+INFO: Small document: 50 pages, 5.2MB → using v2 backend
+INFO: Auto-selected backend: v2 (50 pages, 5.2MB)
+```
+
+### Fallback Strategies (if V2 fails on small docs)
+
+Even for small documents, if V2 crashes, the processor automatically tries:
+
+1. **PyPdfium Backend** - More stable, slower
+2. **Disable Table Structure** - V2 without table recognition
+3. **PyPdfium without tables** - Most stable combination
 
 ### Implementation Details
 
@@ -81,22 +115,25 @@ Results include `fallback_used` field when fallback succeeds:
 
 ### Configuration Options
 
-**For Problematic PDFs**:
+**Default (Recommended)**:
 ```python
-# Option 1: Use stable backend directly
+# Automatic backend selection based on document size
+processor = PDFProcessor()  # backend="auto", auto_fallback=True
+```
+
+**Manual Backend Selection**:
+```python
+# Force V2 backend (fast, may crash on large docs)
+processor = PDFProcessor(backend="v2")
+
+# Force PyPdfium backend (stable, slower)
 processor = PDFProcessor(backend="pypdfium")
 
-# Option 2: Disable table structure
+# Disable table structure (reduces memory usage)
 processor = PDFProcessor(enable_table_structure=False)
 
-# Option 3: Both
-processor = PDFProcessor(
-    backend="pypdfium",
-    enable_table_structure=False
-)
-
-# Option 4: Let auto-fallback handle it (recommended)
-processor = PDFProcessor(auto_fallback=True)  # Default
+# Disable auto-fallback (not recommended)
+processor = PDFProcessor(auto_fallback=False)
 ```
 
 ### Testing

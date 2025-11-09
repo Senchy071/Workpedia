@@ -33,6 +33,7 @@ data/         # Input documents and processed output
 - Chunking: 512 tokens with 15% overlap
 - Embedding dimension: 768
 - Large documents: >100 pages or >50MB processed in 75-page chunks
+- Backend selection: Auto-detect large docs (>200 pages OR >20MB) → use PyPdfium backend
 
 ## Development Commands
 
@@ -99,12 +100,17 @@ timeout 30 ollama run mistral "test prompt"
 5. Query interface retrieves relevant chunks and generates answers via Mistral [Phase 4]
 
 **Phase 2 Components**:
-- `core/parser.py`: DocumentParser with Docling integration
+- `core/parser.py`: DocumentParser with Docling integration (V2 + PyPdfium backends)
 - `core/large_doc_handler.py`: LargeDocumentHandler for 100+ page PDFs
 - `core/analyzer.py`: StructureAnalyzer for document hierarchy extraction
 - `core/validator.py`: DocumentValidator for result validation
 - `core/progress_tracker.py`: ProgressTracker for processing monitoring
 - `processors/`: Format-specific processors (PDF, DOCX, HTML, Image)
+
+**PDF Backend Selection**:
+- Small docs (<200 pages AND <20MB): V2 backend (fast)
+- Large docs (>200 pages OR >20MB): PyPdfium backend (stable)
+- Automatic fallback if V2 crashes on small docs
 
 **Testing Phase 2**:
 ```bash

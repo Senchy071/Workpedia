@@ -26,3 +26,7 @@ CHUNK_OVERLAP = 0.15  # 15% overlap
 MAX_PAGES_SINGLE_PASS = 100  # Process in chunks if more pages
 MAX_FILE_SIZE_MB = 50  # Process in chunks if larger
 CHUNK_SIZE_PAGES = 75  # Pages per chunk for large documents
+
+# Large document detection for backend selection
+LARGE_DOC_PAGE_THRESHOLD = 200  # Use stable backend if >200 pages
+LARGE_DOC_SIZE_MB_THRESHOLD = 20  # Use stable backend if >20MB
