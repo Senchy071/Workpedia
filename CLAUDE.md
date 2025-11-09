@@ -2,6 +2,28 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Critical Directive: Use Web Search Proactively
+
+**IMPORTANT**: The AI field changes daily. When encountering obstacles, bugs, or design decisions:
+
+1. **Search first, code second** - Use WebSearch to check for:
+   - Latest library versions and breaking changes
+   - Known issues and their fixes (GitHub issues, Stack Overflow)
+   - Current best practices and recommendations
+   - New tools or approaches that solve the problem better
+
+2. **Examples where web search would have helped**:
+   - Docling "corrupted double-linked list" crash → Found in GitHub issues
+   - PyPdfium stability vs V2 performance → Documented in discussions
+   - Large PDF handling → Community solutions and workarounds
+
+3. **Don't rely solely on knowledge cutoff** (January 2025):
+   - Libraries like Docling, ChromaDB, sentence-transformers update frequently
+   - Bug fixes and patches are released continuously
+   - Best practices evolve as the field matures
+
+**Rule**: When stuck, search before implementing workarounds. The problem may already be solved.
+
 ## Project Overview
 
 Workpedia is a privacy-focused RAG (Retrieval-Augmented Generation) application that processes complex documents and enables intelligent question-answering. All processing happens locally - no external API calls.
