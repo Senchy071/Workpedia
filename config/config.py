@@ -34,4 +34,4 @@ LARGE_DOC_SIZE_MB_THRESHOLD = 20  # Use stable backend if >20MB
 # VLM (Vision-Language Model) settings for document structure extraction
 USE_VLM_FOR_LARGE_DOCS = True  # Use Granite-Docling VLM for large documents
 VLM_MODEL = "granite_docling"  # Options: "granite_docling", "smol_docling"
-VLM_PAGE_BATCH_SIZE = 64  # Pages processed in parallel (default: 4, max GPU utilization: 64)
+VLM_PAGE_BATCH_SIZE = 8  # Pages processed in parallel (default: 4, RTX 3090: 8-16 max)
