@@ -1,3 +1,91 @@
+# Critical Fixes and VLM Integration
+
+## Granite-Docling VLM for Structure Extraction ✓ IMPLEMENTED
+
+**Released**: September 17, 2025 by IBM
+**Purpose**: Document structure preservation for RAG systems
+
+### The Structure Problem
+
+**PyPdfium Backend**:
+- ✓ Stable (no crashes)
+- ✗ **NO structure extraction** (0 sections, 0 tables, 0 figures)
+- ✗ Useless for RAG that needs document understanding
+
+**V2 Backend**:
+- ✓ Excellent structure extraction
+- ✗ Crashes on large docs ("corrupted double-linked list")
+
+**Solution**: Granite-Docling VLM
+- ✓ Full structure extraction (tables, sections, figures, equations)
+- ✓ Stable (no crashes)
+- ✓ 258M parameters (efficient)
+- ✓ GPU accelerated
+- ✓ Purpose-built for RAG systems
+
+### Implementation
+
+The system now automatically uses **Granite-Docling VLM** for large documents (>200 pages OR >20MB):
+
+```python
+# Automatic backend selection (default)
+processor = PDFProcessor()  # backend="auto"
+
+# For 873-page PDF:
+# → Auto-detects large document
+# → Selects VLM backend
+# → Uses Granite-Docling model
+# → Extracts full structure
+```
+
+### Configuration
+
+```python
+# config/config.py
+USE_VLM_FOR_LARGE_DOCS = True  # Use VLM for large docs
+VLM_MODEL = "granite_docling"   # Model to use
+VLM_BATCH_SIZE = 1              # Batch size
+
+LARGE_DOC_PAGE_THRESHOLD = 200  # >200 pages = large
+LARGE_DOC_SIZE_MB_THRESHOLD = 20  # >20MB = large
+```
+
+### Expected Log Output
+
+```
+INFO: Processing PDF: CRCStandardMathTablesFormulasZwillinger.pdf
+INFO: Large document detected: 873 pages > 200 pages
+INFO: Auto-selected backend: vlm (873 pages > 200 pages)
+INFO: Creating VLM pipeline with granite_docling model
+INFO: DocumentConverter created with VlmPipeline (granite_docling)
+[VLM model downloads/loads - may take a few minutes first time]
+INFO: Processing document...
+```
+
+### First Run Notes
+
+**The first time you run VLM**, it will:
+1. Download the Granite-Docling model from Hugging Face (~500MB)
+2. Load the model into memory
+3. Then process your document
+
+This initial download is **one-time only**. Subsequent runs will be much faster.
+
+### Manual Backend Selection
+
+```python
+# Force VLM for any document
+processor = PDFProcessor(backend="vlm")
+
+# Force PyPdfium (stable, no structure)
+processor = PDFProcessor(backend="pypdfium")
+
+# Force V2 (fast, may crash on large docs)
+processor = PDFProcessor(backend="v2")
+```
+
+---
+
 # Critical Fixes for Docling Crash Issues
 
 ## Issue 1: Demo Script Ignoring CLI Arguments ✓ FIXED

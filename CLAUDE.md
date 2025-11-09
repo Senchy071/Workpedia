@@ -129,10 +129,18 @@ timeout 30 ollama run mistral "test prompt"
 - `core/progress_tracker.py`: ProgressTracker for processing monitoring
 - `processors/`: Format-specific processors (PDF, DOCX, HTML, Image)
 
-**PDF Backend Selection**:
-- Small docs (<200 pages AND <20MB): V2 backend (fast)
-- Large docs (>200 pages OR >20MB): PyPdfium backend (stable)
+**PDF Backend Selection** (Automatic):
+- Small docs (<200 pages AND <20MB): V2 backend (fast, good structure)
+- Large docs (>200 pages OR >20MB): **Granite-Docling VLM** (stable, full structure)
 - Automatic fallback if V2 crashes on small docs
+
+**Granite-Docling VLM**:
+- 258M parameter vision-language model (released Sept 2025)
+- Purpose-built for document structure preservation in RAG systems
+- Extracts tables, sections, figures, equations, code blocks
+- GPU accelerated (uses cuda:0 on your RTX 3090)
+- Single-pass processing (no chunking needed)
+- First run downloads model (~500MB, one-time only)
 
 **Testing Phase 2**:
 ```bash
