@@ -99,13 +99,13 @@ processor = PDFProcessor(backend="v2")
 
 ---
 
-## Option 1: Split-Process-Merge with V2 Backend (PLANNED)
+## Option 1: Split-Process-Merge with V2 Backend (IMPLEMENTED ✓)
 
 **Approach:**
-1. **Split**: Use PyPDF2 to split large PDF into smaller files (50-75 pages each)
+1. **Split**: Use pypdf to split large PDF into smaller files (75 pages each)
 2. **Process**: Process each split with V2 backend in sequence
-3. **Merge**: Combine DoclingDocument objects back together
-4. **Cleanup**: Delete temporary split files
+3. **Merge**: Combine parsed results back together with page offsets
+4. **Cleanup**: Delete temporary split files automatically
 
 **Advantages:**
 - V2 backend: Fast (~1-2 sec/page) with excellent structure extraction
@@ -114,13 +114,19 @@ processor = PDFProcessor(backend="v2")
 - Simple, reliable, maintainable
 - **Expected time**: 5-10 minutes for 242-page document (vs 40+ min with VLM)
 
-**Implementation Plan:**
-1. Create `core/pdf_splitter.py` to split PDFs by page ranges
-2. Update `core/large_doc_handler.py` to use split-process-merge for V2 backend
-3. Add DoclingDocument merge logic in `core/doc_merger.py`
-4. Test with 242-page NATO handbook and 873-page math reference
+**Implementation (Phase 2 Complete):**
+1. ✓ `core/pdf_splitter.py`: PDFSplitter class to split PDFs by page ranges
+2. ✓ `core/doc_merger.py`: DocumentMerger class to combine parsed chunk results
+3. ✓ `core/large_doc_handler.py`: Updated to use split-process-merge strategy
+4. ✓ Full test coverage with 46 passing tests
 
-**Status**: To be implemented
+**Components:**
+- `PDFSplitter`: Splits PDFs into configurable chunk sizes (default 75 pages)
+- `DocumentMerger`: Merges text, structure, and metadata with page offset handling
+- `ChunkInfo`: Dataclass for tracking chunk processing results
+- `MergeResult`: Dataclass for unified merge results
+
+**Status**: COMPLETE - Ready for production use
 
 ---
 

@@ -112,39 +112,46 @@ timeout 30 ollama run mistral "test prompt"
 
 ## Development Notes
 
-**Project Status**: Phase 2 complete (document processing foundation). Ready for Phase 3 (chunking and embedding).
+**Project Status**: Phase 2 COMPLETE (document processing foundation). Ready for Phase 3 (chunking and embedding).
 
 **Document Processing Flow** (implemented/planned):
 1. ✓ Docling parser extracts structured DoclingDocument format
-2. Semantic/hierarchical chunker preserves structure (headers, tables, cross-refs) [Phase 3]
-3. Embedder generates 768-dim vectors using all-mpnet-base-v2 [Phase 3]
-4. ChromaDB stores chunks with metadata (page numbers, bounding boxes, structure) [Phase 3]
-5. Query interface retrieves relevant chunks and generates answers via Mistral [Phase 4]
+2. ✓ Structure analysis with cross-references, tables, figures
+3. ✓ Large document handling with split-process-merge strategy
+4. Semantic/hierarchical chunker preserves structure [Phase 3]
+5. Embedder generates 768-dim vectors using all-mpnet-base-v2 [Phase 3]
+6. ChromaDB stores chunks with metadata [Phase 3]
+7. Query interface retrieves relevant chunks via Mistral [Phase 4]
 
-**Phase 2 Components**:
-- `core/parser.py`: DocumentParser with Docling integration (V2 + PyPdfium backends)
-- `core/large_doc_handler.py`: LargeDocumentHandler for 100+ page PDFs
-- `core/analyzer.py`: StructureAnalyzer for document hierarchy extraction
+**Phase 2 Components** (ALL COMPLETE):
+- `core/parser.py`: DocumentParser with Docling integration (V2 + PyPdfium + VLM backends)
+- `core/large_doc_handler.py`: LargeDocumentHandler with split-process-merge for 100+ page PDFs
+- `core/pdf_splitter.py`: PDFSplitter for splitting large PDFs into chunks
+- `core/doc_merger.py`: DocumentMerger for combining parsed chunk results
+- `core/analyzer.py`: StructureAnalyzer with full feature set:
+  - Cross-reference extraction (tables, figures, sections, equations, citations)
+  - Table header extraction from Docling data or markdown
+  - Multi-page table detection and merging
+  - Table dimensions (rows, cols) extraction
+  - Document hierarchy building
 - `core/validator.py`: DocumentValidator for result validation
 - `core/progress_tracker.py`: ProgressTracker for processing monitoring
 - `processors/`: Format-specific processors (PDF, DOCX, HTML, Image)
 
+**Large Document Strategy** (Split-Process-Merge):
+1. PDFSplitter splits large PDFs into 75-page chunks
+2. Each chunk processed with V2 backend (fast, good structure)
+3. DocumentMerger combines results with page offset handling
+4. Automatic cleanup of temporary files
+
 **PDF Backend Selection** (Automatic):
 - Small docs (<200 pages AND <20MB): V2 backend (fast, good structure)
-- Large docs (>200 pages OR >20MB): **Granite-Docling VLM** (stable, full structure)
-- Automatic fallback if V2 crashes on small docs
-
-**Granite-Docling VLM**:
-- 258M parameter vision-language model (released Sept 2025)
-- Purpose-built for document structure preservation in RAG systems
-- Extracts tables, sections, figures, equations, code blocks
-- GPU accelerated (uses cuda:0 on your RTX 3090)
-- Single-pass processing (no chunking needed)
-- First run downloads model (~500MB, one-time only)
+- Large docs (>200 pages OR >20MB): Split-process-merge with V2 backend
+- Automatic fallback chain if processing fails
 
 **Testing Phase 2**:
 ```bash
-# Run all tests (31 tests)
+# Run all tests (46 tests)
 pytest tests/
 
 # Run parser-specific tests

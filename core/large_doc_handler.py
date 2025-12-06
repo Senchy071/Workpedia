@@ -1,9 +1,9 @@
-"""Handler for processing large documents in chunks to avoid memory issues."""
+"""Handler for processing large documents using split-process-merge strategy."""
 
 import logging
 import gc
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Callable
 from datetime import datetime
 
 from pypdf import PdfReader
@@ -15,19 +15,23 @@ from config.config import (
     VLM_MODEL,
 )
 from core.parser import DocumentParser
+from core.pdf_splitter import PDFSplitter, SplitResult
+from core.doc_merger import DocumentMerger, ChunkInfo, create_chunk_info
 
 logger = logging.getLogger(__name__)
 
 
 class LargeDocumentHandler:
     """
-    Handler for processing large documents in manageable chunks.
+    Handler for processing large documents using split-process-merge strategy.
 
     Features:
     - Auto-detection of large documents (>100 pages or >50MB)
-    - Sequential chunk processing with memory cleanup
+    - PDF splitting into manageable chunks
+    - Sequential chunk processing with V2 backend
+    - Result merging with page offset handling
+    - Memory cleanup between chunks
     - Progress tracking
-    - Result merging
     """
 
     def __init__(
@@ -47,6 +51,10 @@ class LargeDocumentHandler:
         self.max_pages = max_pages
         self.max_size_mb = max_size_mb
         self.chunk_size_pages = chunk_size_pages
+
+        # Initialize helpers
+        self.splitter = PDFSplitter(chunk_size=chunk_size_pages)
+        self.merger = DocumentMerger()
 
         logger.info(
             f"LargeDocumentHandler initialized: "
@@ -140,14 +148,20 @@ class LargeDocumentHandler:
         self,
         file_path: Path,
         metadata: Optional[Dict[str, Any]] = None,
-        progress_callback: Optional[callable] = None,
+        progress_callback: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
         backend: str = "v2",
         do_ocr: bool = False,
         do_table_structure: bool = True,
         vlm_model: str = VLM_MODEL,
     ) -> Dict[str, Any]:
         """
-        Process large PDF in chunks.
+        Process large PDF using split-process-merge strategy.
+
+        Strategy:
+        1. Split PDF into smaller files (chunk_size_pages each)
+        2. Process each chunk with V2 backend (fast, good structure)
+        3. Merge results with page offset adjustments
+        4. Clean up temporary files
 
         Args:
             file_path: Path to PDF file
@@ -159,7 +173,7 @@ class LargeDocumentHandler:
             vlm_model: VLM model to use if backend="vlm"
 
         Returns:
-            Merged document result
+            Merged document result in standard parser format
         """
         file_path = Path(file_path)
 
@@ -168,114 +182,145 @@ class LargeDocumentHandler:
 
         if not is_large:
             logger.info("Document is not large, using standard processing")
-            parser = DocumentParser()
-            return parser.parse(file_path, metadata)
+            parser = DocumentParser(
+                do_ocr=do_ocr,
+                do_table_structure=do_table_structure,
+                backend=backend,
+                vlm_model=vlm_model,
+            )
+            result = parser.parse(file_path, metadata)
+            parser.cleanup()
+            return result
 
-        logger.info(f"Processing large document: {file_path.name}")
+        logger.info(f"Processing large document with split-process-merge: {file_path.name}")
         start_time = datetime.now()
 
         # Get page count
         pdf_reader = PdfReader(str(file_path))
         num_pages = len(pdf_reader.pages)
-        file_size_mb = file_path.stat().st_size / (1024 * 1024)
 
-        # Calculate chunks
-        chunks = self.calculate_chunks(num_pages)
+        # Split PDF into chunks
+        logger.info(f"Splitting {num_pages}-page PDF into chunks...")
+        split_result = self.splitter.split(file_path)
 
-        # Process each chunk
-        chunk_results = []
+        chunk_infos: List[ChunkInfo] = []
 
-        for idx, (start_page, end_page) in enumerate(chunks, 1):
+        try:
+            # Process each chunk
+            for idx, (chunk_path, (start_page, end_page)) in enumerate(
+                zip(split_result.split_files, split_result.page_ranges), 1
+            ):
+                logger.info(
+                    f"Processing chunk {idx}/{len(split_result.split_files)}: "
+                    f"pages {start_page}-{end_page}"
+                )
+
+                if progress_callback:
+                    progress_callback(
+                        idx,
+                        len(split_result.split_files),
+                        {
+                            "start_page": start_page,
+                            "end_page": end_page,
+                            "pages_in_chunk": end_page - start_page + 1,
+                        },
+                    )
+
+                chunk_start = datetime.now()
+
+                try:
+                    # Create fresh parser for each chunk
+                    parser = DocumentParser(
+                        do_ocr=do_ocr,
+                        do_table_structure=do_table_structure,
+                        backend=backend,
+                        vlm_model=vlm_model,
+                    )
+
+                    # Process chunk file
+                    result = parser.parse(chunk_path)
+
+                    chunk_time = (datetime.now() - chunk_start).total_seconds()
+
+                    chunk_infos.append(
+                        create_chunk_info(
+                            chunk_index=idx,
+                            start_page=start_page,
+                            end_page=end_page,
+                            parse_result=result,
+                            processing_time=chunk_time,
+                            success=True,
+                        )
+                    )
+
+                    # Cleanup parser
+                    parser.cleanup()
+                    del parser
+                    gc.collect()
+
+                    logger.info(
+                        f"Chunk {idx}/{len(split_result.split_files)} "
+                        f"processed in {chunk_time:.2f}s"
+                    )
+
+                except Exception as e:
+                    chunk_time = (datetime.now() - chunk_start).total_seconds()
+                    logger.error(f"Failed to process chunk {idx}: {e}")
+
+                    chunk_infos.append(
+                        create_chunk_info(
+                            chunk_index=idx,
+                            start_page=start_page,
+                            end_page=end_page,
+                            parse_result=None,
+                            processing_time=chunk_time,
+                            success=False,
+                            error=str(e),
+                        )
+                    )
+
+            # Check if any chunks succeeded
+            successful = [c for c in chunk_infos if c.success]
+            if not successful:
+                raise RuntimeError("Failed to process any chunks of the document")
+
+            # Merge results
             logger.info(
-                f"Processing chunk {idx}/{len(chunks)}: "
-                f"pages {start_page}-{end_page}"
+                f"Merging {len(successful)}/{len(chunk_infos)} successful chunks..."
+            )
+            merge_result = self.merger.merge(
+                chunks=chunk_infos,
+                original_path=file_path,
+                total_pages=num_pages,
             )
 
-            if progress_callback:
-                progress_callback(
-                    idx,
-                    len(chunks),
-                    {
-                        "start_page": start_page,
-                        "end_page": end_page,
-                        "pages_in_chunk": end_page - start_page + 1,
-                    },
-                )
+            # Convert to standard parser result format
+            final_result = self.merger.to_parser_result(merge_result)
 
-            try:
-                # Create fresh parser for each chunk to prevent memory leaks
-                parser = DocumentParser(
-                    do_ocr=do_ocr,
-                    do_table_structure=do_table_structure,
-                    backend=backend,
-                    vlm_model=vlm_model
-                )
+            # Add custom metadata if provided
+            if metadata:
+                final_result["metadata"].update(metadata)
 
-                # Note: Docling's DocumentConverter doesn't support page ranges
-                # directly in the API, so we'll process the whole document
-                # but this approach allows for memory cleanup between attempts
-                result = parser.parse(file_path)
+            # Add total processing time
+            total_time = (datetime.now() - start_time).total_seconds()
+            final_result["metadata"]["total_processing_time_seconds"] = round(total_time, 2)
 
-                chunk_results.append(result)
+            logger.info(
+                f"Large document processed: {len(successful)}/{len(chunk_infos)} "
+                f"chunks successful, {num_pages} pages in {total_time:.2f}s"
+            )
 
-                # Cleanup
-                parser.cleanup()
-                del parser
-                gc.collect()
+            return final_result
 
-                logger.info(f"Chunk {idx}/{len(chunks)} processed successfully")
-
-                # Since Docling doesn't support page ranges and processes the whole document,
-                # if we got a successful result with all pages, we're done
-                if result and result.get("metadata", {}).get("pages", 0) == num_pages:
-                    logger.info(
-                        f"First chunk successfully processed all {num_pages} pages. "
-                        f"Skipping remaining chunks (Docling processes entire document)."
-                    )
-                    break
-
-            except Exception as e:
-                logger.error(f"Failed to process chunk {idx}: {e}")
-                # Continue with other chunks
-                continue
-
-        if not chunk_results:
-            raise RuntimeError("Failed to process any chunks of the document")
-
-        # For now, we'll use the first successful result
-        # TODO: Implement proper merging of DoclingDocument objects
-        final_result = chunk_results[0]
-
-        # Update metadata to reflect chunked processing
-        processing_time = (datetime.now() - start_time).total_seconds()
-
-        final_result["metadata"].update(
-            {
-                "processed_in_chunks": True,
-                "num_chunks": len(chunks),
-                "chunks_processed": len(chunk_results),
-                "chunks_failed": len(chunks) - len(chunk_results),
-                "processing_time_seconds": round(processing_time, 2),
-                "pages": num_pages,
-                "file_size_mb": round(file_size_mb, 2),
-            }
-        )
-
-        if metadata:
-            final_result["metadata"].update(metadata)
-
-        logger.info(
-            f"Large document processed: {len(chunk_results)}/{len(chunks)} "
-            f"chunks successful in {processing_time:.2f}s"
-        )
-
-        return final_result
+        finally:
+            # Clean up split files
+            PDFSplitter.cleanup(split_result)
 
     def process(
         self,
         file_path: Path | str,
         metadata: Optional[Dict[str, Any]] = None,
-        progress_callback: Optional[callable] = None,
+        progress_callback: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
         backend: str = "v2",
         do_ocr: bool = False,
         do_table_structure: bool = True,
@@ -303,8 +348,13 @@ class LargeDocumentHandler:
 
             if is_large:
                 return self.process_large_pdf(
-                    file_path, metadata, progress_callback,
-                    backend, do_ocr, do_table_structure, vlm_model
+                    file_path,
+                    metadata,
+                    progress_callback,
+                    backend,
+                    do_ocr,
+                    do_table_structure,
+                    vlm_model,
                 )
 
         # Standard processing for small documents or non-PDFs
@@ -312,7 +362,7 @@ class LargeDocumentHandler:
             do_ocr=do_ocr,
             do_table_structure=do_table_structure,
             backend=backend,
-            vlm_model=vlm_model
+            vlm_model=vlm_model,
         )
         result = parser.parse(file_path, metadata)
         parser.cleanup()

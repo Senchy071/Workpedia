@@ -280,5 +280,306 @@ def test_config_imports():
     assert CHUNK_SIZE_PAGES == 75
 
 
+class TestPDFSplitter:
+    """Test PDFSplitter class."""
+
+    def test_splitter_initialization(self):
+        """Test splitter can be initialized."""
+        from core.pdf_splitter import PDFSplitter
+
+        splitter = PDFSplitter()
+        assert splitter is not None
+        assert splitter.chunk_size == 75
+
+        splitter_custom = PDFSplitter(chunk_size=50)
+        assert splitter_custom.chunk_size == 50
+
+    def test_calculate_splits(self):
+        """Test split calculation."""
+        from core.pdf_splitter import PDFSplitter
+
+        splitter = PDFSplitter(chunk_size=50)
+
+        # Test 150 pages -> 3 splits
+        splits = splitter.calculate_splits(150)
+        assert len(splits) == 3
+        assert splits[0] == (1, 50)
+        assert splits[1] == (51, 100)
+        assert splits[2] == (101, 150)
+
+        # Test 75 pages -> 2 splits
+        splits = splitter.calculate_splits(75)
+        assert len(splits) == 2
+        assert splits[0] == (1, 50)
+        assert splits[1] == (51, 75)
+
+        # Test exact chunk size
+        splits = splitter.calculate_splits(50)
+        assert len(splits) == 1
+        assert splits[0] == (1, 50)
+
+
+class TestDocumentMerger:
+    """Test DocumentMerger class."""
+
+    def test_merger_initialization(self):
+        """Test merger can be initialized."""
+        from core.doc_merger import DocumentMerger
+
+        merger = DocumentMerger()
+        assert merger is not None
+
+    def test_chunk_info_creation(self):
+        """Test ChunkInfo dataclass."""
+        from core.doc_merger import create_chunk_info
+
+        chunk = create_chunk_info(
+            chunk_index=1,
+            start_page=1,
+            end_page=50,
+            parse_result={"raw_text": "test"},
+            processing_time=5.0,
+            success=True,
+        )
+
+        assert chunk.chunk_index == 1
+        assert chunk.start_page == 1
+        assert chunk.end_page == 50
+        assert chunk.success is True
+        assert chunk.processing_time == 5.0
+
+    def test_merge_text(self):
+        """Test text merging functionality."""
+        from core.doc_merger import DocumentMerger, create_chunk_info
+
+        merger = DocumentMerger()
+
+        chunks = [
+            create_chunk_info(
+                chunk_index=1,
+                start_page=1,
+                end_page=50,
+                parse_result={"raw_text": "Content from chunk 1"},
+            ),
+            create_chunk_info(
+                chunk_index=2,
+                start_page=51,
+                end_page=100,
+                parse_result={"raw_text": "Content from chunk 2"},
+            ),
+        ]
+
+        merged = merger._merge_text(chunks)
+
+        assert "Content from chunk 1" in merged
+        assert "Content from chunk 2" in merged
+        assert "Pages 1-50" in merged
+        assert "Pages 51-100" in merged
+
+
+class TestCrossReferenceExtraction:
+    """Test cross-reference extraction in StructureAnalyzer."""
+
+    def test_cross_ref_patterns(self):
+        """Test cross-reference regex patterns."""
+        from core.analyzer import StructureAnalyzer
+        import re
+
+        analyzer = StructureAnalyzer()
+
+        # Test table references
+        table_pattern = analyzer.CROSS_REF_PATTERNS["table"]
+        assert table_pattern.search("See Table 1 for details")
+        assert table_pattern.search("As shown in Tab. 2.3")
+        assert table_pattern.search("Refer to Table 1a")
+
+        # Test figure references
+        figure_pattern = analyzer.CROSS_REF_PATTERNS["figure"]
+        assert figure_pattern.search("See Figure 1")
+        assert figure_pattern.search("As shown in Fig. 2.3")
+        assert figure_pattern.search("Figures 1 and 2")
+
+        # Test section references
+        section_pattern = analyzer.CROSS_REF_PATTERNS["section"]
+        assert section_pattern.search("See Section 1")
+        assert section_pattern.search("As described in Section 3.2.1")
+        assert section_pattern.search("§ 4.5")
+
+        # Test equation references
+        equation_pattern = analyzer.CROSS_REF_PATTERNS["equation"]
+        assert equation_pattern.search("See Equation 1")
+        assert equation_pattern.search("From Eq. (2)")
+        assert equation_pattern.search("Equations 3.1")
+
+    def test_cross_reference_dataclass(self):
+        """Test CrossReference dataclass."""
+        from core.analyzer import CrossReference
+
+        ref = CrossReference(
+            ref_type="table",
+            ref_id="1",
+            source_page=5,
+            source_text="See Table 1 for details",
+            target_id="table_1",
+        )
+
+        assert ref.ref_type == "table"
+        assert ref.ref_id == "1"
+        assert ref.source_page == 5
+
+
+class TestTableStructureExtraction:
+    """Test table structure extraction features."""
+
+    def test_parse_table_from_markdown(self):
+        """Test parsing table from markdown format."""
+        from core.analyzer import StructureAnalyzer
+
+        analyzer = StructureAnalyzer()
+
+        markdown_table = """| Name | Age | City |
+|------|-----|------|
+| John | 30  | NYC  |
+| Jane | 25  | LA   |"""
+
+        rows, cols, headers = analyzer._parse_table_from_text(markdown_table)
+
+        assert rows == 3  # Header + 2 data rows (separator excluded)
+        assert cols == 3
+        assert headers == ["Name", "Age", "City"]
+
+    def test_parse_table_from_tsv(self):
+        """Test parsing table from tab-separated format."""
+        from core.analyzer import StructureAnalyzer
+
+        analyzer = StructureAnalyzer()
+
+        tsv_table = "Name\tAge\tCity\nJohn\t30\tNYC\nJane\t25\tLA"
+
+        rows, cols, headers = analyzer._parse_table_from_text(tsv_table)
+
+        assert rows == 3
+        assert cols == 3
+        assert headers == ["Name", "Age", "City"]
+
+    def test_table_info_dataclass(self):
+        """Test TableInfo dataclass with headers."""
+        from core.analyzer import TableInfo
+
+        table = TableInfo(
+            table_id="table_1",
+            page_numbers=[1, 2],
+            num_rows=10,
+            num_cols=5,
+            headers=["Col1", "Col2", "Col3", "Col4", "Col5"],
+            bounding_boxes=[],
+            is_multi_page=True,
+            content="table content",
+            header_row_index=0,
+        )
+
+        assert table.table_id == "table_1"
+        assert len(table.headers) == 5
+        assert table.is_multi_page is True
+        assert table.num_rows == 10
+        assert table.num_cols == 5
+
+
+class TestMultiPageTableDetection:
+    """Test multi-page table detection."""
+
+    def test_detect_multi_page_single_table(self):
+        """Test that single tables are not marked as multi-page."""
+        from core.analyzer import StructureAnalyzer, TableInfo
+
+        analyzer = StructureAnalyzer()
+
+        tables = [
+            TableInfo(
+                table_id="table_1",
+                page_numbers=[1],
+                num_rows=5,
+                num_cols=3,
+                headers=["A", "B", "C"],
+                bounding_boxes=[],
+                is_multi_page=False,
+                content="",
+            )
+        ]
+
+        result = analyzer._detect_multi_page_tables(tables)
+        assert len(result) == 1
+        assert result[0].is_multi_page is False
+
+    def test_detect_multi_page_consecutive_tables(self):
+        """Test detection of tables on consecutive pages."""
+        from core.analyzer import StructureAnalyzer, TableInfo
+
+        analyzer = StructureAnalyzer()
+
+        tables = [
+            TableInfo(
+                table_id="table_1",
+                page_numbers=[1],
+                num_rows=5,
+                num_cols=3,
+                headers=["A", "B", "C"],
+                bounding_boxes=[{"x": 0, "y": 0.8, "width": 1, "height": 0.2}],
+                is_multi_page=False,
+                content="Row 1",
+            ),
+            TableInfo(
+                table_id="table_2",
+                page_numbers=[2],
+                num_rows=5,
+                num_cols=3,
+                headers=["A", "B", "C"],  # Same headers
+                bounding_boxes=[{"x": 0, "y": 0.1, "width": 1, "height": 0.2}],
+                is_multi_page=False,
+                content="Row 6",
+            ),
+        ]
+
+        result = analyzer._detect_multi_page_tables(tables)
+
+        # Both should be marked as multi-page
+        assert result[0].is_multi_page is True
+        assert result[1].is_multi_page is True
+        # First table should have pages from both
+        assert 1 in result[0].page_numbers
+        assert 2 in result[0].page_numbers
+
+
+class TestElementClassification:
+    """Test enhanced element classification."""
+
+    def test_classify_equation(self):
+        """Test equation element classification."""
+        from core.analyzer import StructureAnalyzer
+
+        analyzer = StructureAnalyzer()
+
+        assert analyzer._classify_element("formula") == "equation"
+        assert analyzer._classify_element("equation-block") == "equation"
+
+    def test_classify_caption(self):
+        """Test caption element classification."""
+        from core.analyzer import StructureAnalyzer
+
+        analyzer = StructureAnalyzer()
+
+        assert analyzer._classify_element("caption") == "caption"
+        assert analyzer._classify_element("figure-caption") == "caption"
+
+    def test_classify_picture(self):
+        """Test picture element classification."""
+        from core.analyzer import StructureAnalyzer
+
+        analyzer = StructureAnalyzer()
+
+        assert analyzer._classify_element("picture") == "figure"
+        assert analyzer._classify_element("image") == "figure"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
