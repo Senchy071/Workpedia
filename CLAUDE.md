@@ -29,6 +29,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Workpedia is a privacy-focused RAG (Retrieval-Augmented Generation) application that processes complex documents and enables intelligent question-answering. All processing happens locally - no external API calls.
 
 **Key Technologies:**
+
 - **Document Parsing**: Docling with DocLayNet + TableFormer models for layout-aware extraction
 - **Embeddings**: sentence-transformers/all-mpnet-base-v2 (768-dimensional)
 - **Vector Store**: ChromaDB for similarity search
@@ -39,7 +40,7 @@ Workpedia is a privacy-focused RAG (Retrieval-Augmented Generation) application 
 
 The codebase follows a modular architecture organized by functional concern:
 
-```
+```text
 config/       # Configuration constants (Ollama, embeddings, ChromaDB, chunking)
 core/         # Core RAG components: parser, chunker, embedder
 processors/   # Document type-specific processors (PDF, DOCX, HTML, images)
@@ -50,7 +51,8 @@ data/         # Input documents and processed output
 ```
 
 **Key Configuration** (config/config.py):
-- Ollama: http://localhost:11434 using "mistral" model
+
+- Ollama: <http://localhost:11434> using "mistral" model
 - ChromaDB: Persisted to `chroma_db/` in project root, collection "workpedia_docs"
 - Chunking: 512 tokens with 15% overlap
 - Embedding dimension: 768
@@ -60,6 +62,7 @@ data/         # Input documents and processed output
 ## Development Commands
 
 ### Environment Setup
+
 ```bash
 # Install core dependencies
 pip install -r requirements.txt
@@ -72,6 +75,7 @@ python tests/test_setup.py
 ```
 
 ### Testing
+
 ```bash
 # Run all tests
 pytest
@@ -87,6 +91,7 @@ pytest --cov=.
 ```
 
 ### Code Quality
+
 ```bash
 # Format code (line length: 100)
 black .
@@ -99,6 +104,7 @@ mypy .
 ```
 
 ### Ollama Commands
+
 ```bash
 # Check Ollama is running and Mistral is available
 ollama list
@@ -115,6 +121,7 @@ timeout 30 ollama run mistral "test prompt"
 **Project Status**: ALL PHASES COMPLETE. Production-ready RAG system.
 
 **Document Processing Flow** (ALL IMPLEMENTED):
+
 1. ✓ Docling parser extracts structured DoclingDocument format
 2. ✓ Structure analysis with cross-references, tables, figures
 3. ✓ Large document handling with split-process-merge strategy
@@ -125,6 +132,7 @@ timeout 30 ollama run mistral "test prompt"
 8. ✓ FastAPI REST endpoints for full API access
 
 **Phase 2 Components** (ALL COMPLETE):
+
 - `core/parser.py`: DocumentParser with Docling integration (V2 + PyPdfium + VLM backends)
 - `core/large_doc_handler.py`: LargeDocumentHandler with split-process-merge for 100+ page PDFs
 - `core/pdf_splitter.py`: PDFSplitter for splitting large PDFs into chunks
@@ -140,6 +148,7 @@ timeout 30 ollama run mistral "test prompt"
 - `processors/`: Format-specific processors (PDF, DOCX, HTML, Image)
 
 **Phase 3 Components** (ALL COMPLETE):
+
 - `core/chunker.py`: SemanticChunker for structure-aware text splitting
   - Preserves tables and figures as single chunks
   - Tracks section context in metadata
@@ -154,6 +163,7 @@ timeout 30 ollama run mistral "test prompt"
   - DocumentIndexer for high-level workflow
 
 **Phase 4 Components** (ALL COMPLETE):
+
 - `core/llm.py`: OllamaClient for LLM integration
   - Streaming and non-streaming generation
   - Chat completion support
@@ -169,17 +179,20 @@ timeout 30 ollama run mistral "test prompt"
   - OpenAPI documentation at /docs
 
 **Large Document Strategy** (Split-Process-Merge):
+
 1. PDFSplitter splits large PDFs into 75-page chunks
 2. Each chunk processed with V2 backend (fast, good structure)
 3. DocumentMerger combines results with page offset handling
 4. Automatic cleanup of temporary files
 
 **PDF Backend Selection** (Automatic):
+
 - Small docs (<200 pages AND <20MB): V2 backend (fast, good structure)
 - Large docs (>200 pages OR >20MB): Split-process-merge with V2 backend
 - Automatic fallback chain if processing fails
 
 **Testing**:
+
 ```bash
 # Run all tests (111 tests)
 pytest tests/
@@ -201,6 +214,7 @@ python3 demo_parser.py
 ```
 
 **Running the API Server**:
+
 ```bash
 # Start the API server
 python -m api.endpoints
@@ -213,6 +227,7 @@ python -m api.endpoints --host 0.0.0.0 --port 8080
 ```
 
 **Important Constraints**:
+
 - All data must stay local (privacy-first design)
 - Document structure must be preserved through chunking
 - Metadata tracking includes page numbers, bounding boxes, document hierarchy

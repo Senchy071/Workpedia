@@ -39,6 +39,7 @@ workpedia/
 │   └── vector_store.py  # ChromaDB vector store interface
 ├── api/                 # API endpoints and query interface
 │   └── endpoints.py     # FastAPI REST API
+├── app.py               # Streamlit web UI
 ├── tests/               # Test files (111 tests)
 ├── data/                # Sample data and test documents
 │   ├── input/           # Input documents for testing
@@ -92,6 +93,25 @@ pytest tests/ -v
 All 111 tests should pass.
 
 ## Usage
+
+### Web UI (Recommended for Beginners)
+
+The easiest way to use Workpedia is through the Streamlit web interface:
+
+```bash
+# Make sure Ollama is running with Mistral
+ollama serve
+ollama pull mistral
+
+# Start the web UI
+streamlit run app.py
+```
+
+The UI will open at `http://localhost:8501` with features:
+- 📤 **Upload Documents**: Drag & drop PDF, DOCX, or HTML files
+- 💬 **Chat Interface**: Ask questions about your documents
+- 📊 **Statistics**: View indexed documents and system stats
+- ⚙️ **Settings**: Adjust context chunks and temperature
 
 ### Process a Document
 
@@ -313,6 +333,7 @@ Edit `config/config.py` to customize:
 | Vector DB | ChromaDB | Persistent vector storage with similarity search |
 | LLM | Ollama + Mistral 7B | Local privacy-preserving text generation |
 | API | FastAPI + Uvicorn | REST API with OpenAPI documentation |
+| Web UI | Streamlit | Interactive web interface for document upload and Q&A |
 
 ## Key Features
 
@@ -327,6 +348,7 @@ Edit `config/config.py` to customize:
 - **Persistent Storage**: ChromaDB vector store with disk persistence
 - **RAG Query Engine**: Combines retrieval and generation for accurate answers
 - **REST API**: Full-featured API with streaming support and OpenAPI docs
+- **Web UI**: User-friendly Streamlit interface for document upload and Q&A
 
 ## License
 
