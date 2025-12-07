@@ -112,16 +112,17 @@ timeout 30 ollama run mistral "test prompt"
 
 ## Development Notes
 
-**Project Status**: Phase 3 COMPLETE (chunking and embedding). Ready for Phase 4 (query interface).
+**Project Status**: ALL PHASES COMPLETE. Production-ready RAG system.
 
-**Document Processing Flow** (implemented/planned):
+**Document Processing Flow** (ALL IMPLEMENTED):
 1. ✓ Docling parser extracts structured DoclingDocument format
 2. ✓ Structure analysis with cross-references, tables, figures
 3. ✓ Large document handling with split-process-merge strategy
 4. ✓ Semantic/hierarchical chunker preserves structure
 5. ✓ Embedder generates 768-dim vectors using all-mpnet-base-v2
 6. ✓ ChromaDB stores chunks with metadata
-7. Query interface retrieves relevant chunks via Mistral [Phase 4]
+7. ✓ QueryEngine retrieves relevant chunks and generates answers via Mistral
+8. ✓ FastAPI REST endpoints for full API access
 
 **Phase 2 Components** (ALL COMPLETE):
 - `core/parser.py`: DocumentParser with Docling integration (V2 + PyPdfium + VLM backends)
@@ -152,6 +153,21 @@ timeout 30 ollama run mistral "test prompt"
   - Similarity search with metadata filtering
   - DocumentIndexer for high-level workflow
 
+**Phase 4 Components** (ALL COMPLETE):
+- `core/llm.py`: OllamaClient for LLM integration
+  - Streaming and non-streaming generation
+  - Chat completion support
+  - RAG prompt templates
+- `core/query_engine.py`: QueryEngine for RAG queries
+  - Combines retrieval + generation
+  - Source citation and formatting
+  - Health checks
+- `api/endpoints.py`: FastAPI REST API
+  - Query endpoints (sync and streaming)
+  - Document management (upload, index, delete)
+  - System stats and health checks
+  - OpenAPI documentation at /docs
+
 **Large Document Strategy** (Split-Process-Merge):
 1. PDFSplitter splits large PDFs into 75-page chunks
 2. Each chunk processed with V2 backend (fast, good structure)
@@ -165,20 +181,35 @@ timeout 30 ollama run mistral "test prompt"
 
 **Testing**:
 ```bash
-# Run all tests (81 tests)
+# Run all tests (111 tests)
 pytest tests/
 
 # Run parser-specific tests
 pytest tests/test_parser.py -v
 
-# Run Phase 3 tests
+# Run Phase 3 tests (chunking, embedding, vector store)
 pytest tests/test_phase3.py -v
+
+# Run Phase 4 tests (LLM, query engine, API)
+pytest tests/test_phase4.py -v
 
 # Run integration tests
 pytest tests/test_integration.py -v
 
 # Demo parser with your documents
 python3 demo_parser.py
+```
+
+**Running the API Server**:
+```bash
+# Start the API server
+python -m api.endpoints
+
+# With auto-reload for development
+python -m api.endpoints --reload
+
+# Custom host/port
+python -m api.endpoints --host 0.0.0.0 --port 8080
 ```
 
 **Important Constraints**:

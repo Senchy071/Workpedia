@@ -27,7 +27,9 @@ workpedia/
 │   ├── pdf_splitter.py  # PDF splitting by page ranges
 │   ├── doc_merger.py    # Merge parsed chunk results
 │   ├── chunker.py       # SemanticChunker for structure-aware chunking
-│   └── embedder.py      # Embedder for semantic vector generation
+│   ├── embedder.py      # Embedder for semantic vector generation
+│   ├── llm.py           # OllamaClient for LLM integration
+│   └── query_engine.py  # RAG query engine
 ├── processors/          # Document type-specific processors
 │   ├── pdf_processor.py # PDF processing with auto-fallback
 │   ├── docx_processor.py
@@ -35,8 +37,9 @@ workpedia/
 │   └── image_processor.py
 ├── storage/             # Vector store and metadata
 │   └── vector_store.py  # ChromaDB vector store interface
-├── api/                 # API endpoints and query interface (Phase 4)
-├── tests/               # Test files (81 tests)
+├── api/                 # API endpoints and query interface
+│   └── endpoints.py     # FastAPI REST API
+├── tests/               # Test files (111 tests)
 ├── data/                # Sample data and test documents
 │   ├── input/           # Input documents for testing
 │   └── output/          # Processed output
@@ -86,7 +89,7 @@ ollama pull mistral
 pytest tests/ -v
 ```
 
-All 81 tests should pass.
+All 111 tests should pass.
 
 ## Usage
 
@@ -180,6 +183,51 @@ query_emb = embedder.embed("What methods were used?")
 results = vector_store.query(query_emb, n_results=5)
 ```
 
+### Query Interface (Phase 4)
+
+```python
+from core.query_engine import QueryEngine
+
+# Initialize query engine
+engine = QueryEngine()
+
+# Ask a question
+result = engine.query("What are the main findings of this study?")
+print(f"Answer: {result.answer}")
+print(f"Sources: {len(result.sources)} chunks used")
+
+# Filter to specific document
+result = engine.query("Summarize the methods", doc_id="doc-123")
+
+# Get similar chunks without generation
+chunks = engine.get_similar_chunks("machine learning applications", n_results=10)
+```
+
+### REST API
+
+Start the API server:
+
+```bash
+# Start server (default: http://localhost:8000)
+python -m api.endpoints
+
+# Or with custom settings
+python -m api.endpoints --host 0.0.0.0 --port 8080 --reload
+```
+
+API Endpoints:
+- `POST /query` - Query documents and get AI-generated answer
+- `POST /query/stream` - Streaming query response
+- `POST /search` - Semantic search without generation
+- `POST /documents/index` - Index a document from filesystem
+- `POST /documents/upload` - Upload and index a document
+- `GET /documents` - List all indexed documents
+- `DELETE /documents/{doc_id}` - Delete a document
+- `GET /health` - Health check
+- `GET /stats` - System statistics
+
+Interactive docs available at `http://localhost:8000/docs`
+
 ## Development Setup
 
 For development work, install additional tools:
@@ -243,13 +291,15 @@ Edit `config/config.py` to customize:
 - [x] ChromaDB vector storage integration
 - [x] DocumentIndexer for high-level indexing workflow
 - [x] Similarity search with metadata filtering
-- [x] 81 tests passing
 
-### Phase 4: Query Interface - Planned
+### Phase 4: Query Interface - Complete ✓
 
-- [ ] API endpoint design
-- [ ] Ollama integration for response generation
-- [ ] Query result formatting
+- [x] OllamaClient for LLM integration (streaming/non-streaming)
+- [x] QueryEngine combining retrieval + generation
+- [x] FastAPI REST endpoints with OpenAPI docs
+- [x] Document upload and indexing API
+- [x] Health checks and system statistics
+- [x] 111 tests passing
 
 ## Technology Stack
 
@@ -261,7 +311,8 @@ Edit `config/config.py` to customize:
 | Chunking | SemanticChunker | Structure-aware text splitting with overlap |
 | Embeddings | sentence-transformers/all-mpnet-base-v2 | 768-dim semantic representations |
 | Vector DB | ChromaDB | Persistent vector storage with similarity search |
-| LLM | Ollama + Mistral 7B | Local text generation (Phase 4) |
+| LLM | Ollama + Mistral 7B | Local privacy-preserving text generation |
+| API | FastAPI + Uvicorn | REST API with OpenAPI documentation |
 
 ## Key Features
 
@@ -274,6 +325,8 @@ Edit `config/config.py` to customize:
 - **Cross-Reference Detection**: Identifies Table/Figure/Section/Equation references
 - **Semantic Search**: High-quality 768-dim embeddings with cosine similarity
 - **Persistent Storage**: ChromaDB vector store with disk persistence
+- **RAG Query Engine**: Combines retrieval and generation for accurate answers
+- **REST API**: Full-featured API with streaming support and OpenAPI docs
 
 ## License
 
@@ -281,5 +334,5 @@ MIT
 
 ## Contributing
 
-This project is under active development. Phases 1-3 are complete.
-Contributions welcome for Phase 4 (Query Interface with Ollama/Mistral).
+This project has completed all four development phases and is production-ready.
+Contributions welcome for enhancements, bug fixes, and documentation improvements.

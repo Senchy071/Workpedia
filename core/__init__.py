@@ -15,6 +15,8 @@ from core.pdf_splitter import PDFSplitter, SplitResult
 from core.doc_merger import DocumentMerger, ChunkInfo, MergeResult, create_chunk_info
 from core.chunker import SemanticChunker, Chunk, chunk_document
 from core.embedder import Embedder, embed_text
+from core.llm import OllamaClient, RAG_SYSTEM_PROMPT, format_rag_prompt
+from core.query_engine import QueryEngine, QueryResult, ask
 
 __all__ = [
     # Parser
@@ -34,6 +36,14 @@ __all__ = [
     # Embedding (Phase 3)
     "Embedder",
     "embed_text",
+    # LLM (Phase 4)
+    "OllamaClient",
+    "RAG_SYSTEM_PROMPT",
+    "format_rag_prompt",
+    # Query Engine (Phase 4)
+    "QueryEngine",
+    "QueryResult",
+    "ask",
     # Structure analysis
     "StructureAnalyzer",
     "DocumentStructure",
