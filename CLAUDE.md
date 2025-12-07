@@ -112,15 +112,15 @@ timeout 30 ollama run mistral "test prompt"
 
 ## Development Notes
 
-**Project Status**: Phase 2 COMPLETE (document processing foundation). Ready for Phase 3 (chunking and embedding).
+**Project Status**: Phase 3 COMPLETE (chunking and embedding). Ready for Phase 4 (query interface).
 
 **Document Processing Flow** (implemented/planned):
 1. ✓ Docling parser extracts structured DoclingDocument format
 2. ✓ Structure analysis with cross-references, tables, figures
 3. ✓ Large document handling with split-process-merge strategy
-4. Semantic/hierarchical chunker preserves structure [Phase 3]
-5. Embedder generates 768-dim vectors using all-mpnet-base-v2 [Phase 3]
-6. ChromaDB stores chunks with metadata [Phase 3]
+4. ✓ Semantic/hierarchical chunker preserves structure
+5. ✓ Embedder generates 768-dim vectors using all-mpnet-base-v2
+6. ✓ ChromaDB stores chunks with metadata
 7. Query interface retrieves relevant chunks via Mistral [Phase 4]
 
 **Phase 2 Components** (ALL COMPLETE):
@@ -138,6 +138,20 @@ timeout 30 ollama run mistral "test prompt"
 - `core/progress_tracker.py`: ProgressTracker for processing monitoring
 - `processors/`: Format-specific processors (PDF, DOCX, HTML, Image)
 
+**Phase 3 Components** (ALL COMPLETE):
+- `core/chunker.py`: SemanticChunker for structure-aware text splitting
+  - Preserves tables and figures as single chunks
+  - Tracks section context in metadata
+  - Configurable chunk size (512 tokens) and overlap (15%)
+- `core/embedder.py`: Embedder using sentence-transformers
+  - all-mpnet-base-v2 model (768-dim embeddings)
+  - Batch processing with GPU support
+  - Normalized vectors for cosine similarity
+- `storage/vector_store.py`: ChromaDB vector store
+  - Persistent storage to disk
+  - Similarity search with metadata filtering
+  - DocumentIndexer for high-level workflow
+
 **Large Document Strategy** (Split-Process-Merge):
 1. PDFSplitter splits large PDFs into 75-page chunks
 2. Each chunk processed with V2 backend (fast, good structure)
@@ -149,13 +163,16 @@ timeout 30 ollama run mistral "test prompt"
 - Large docs (>200 pages OR >20MB): Split-process-merge with V2 backend
 - Automatic fallback chain if processing fails
 
-**Testing Phase 2**:
+**Testing**:
 ```bash
-# Run all tests (46 tests)
+# Run all tests (81 tests)
 pytest tests/
 
 # Run parser-specific tests
 pytest tests/test_parser.py -v
+
+# Run Phase 3 tests
+pytest tests/test_phase3.py -v
 
 # Run integration tests
 pytest tests/test_integration.py -v

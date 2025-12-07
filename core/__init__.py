@@ -13,6 +13,8 @@ from core.validator import DocumentValidator, ValidationReport, ValidationIssue
 from core.progress_tracker import ProgressTracker, ProcessingStage
 from core.pdf_splitter import PDFSplitter, SplitResult
 from core.doc_merger import DocumentMerger, ChunkInfo, MergeResult, create_chunk_info
+from core.chunker import SemanticChunker, Chunk, chunk_document
+from core.embedder import Embedder, embed_text
 
 __all__ = [
     # Parser
@@ -25,6 +27,13 @@ __all__ = [
     "ChunkInfo",
     "MergeResult",
     "create_chunk_info",
+    # Chunking (Phase 3)
+    "SemanticChunker",
+    "Chunk",
+    "chunk_document",
+    # Embedding (Phase 3)
+    "Embedder",
+    "embed_text",
     # Structure analysis
     "StructureAnalyzer",
     "DocumentStructure",

@@ -1,0 +1,439 @@
+"""ChromaDB vector store for document chunk storage and retrieval."""
+
+import logging
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Union
+import numpy as np
+
+import chromadb
+from chromadb.config import Settings
+
+from config.config import CHROMA_PERSIST_DIR, CHROMA_COLLECTION_NAME, EMBEDDING_DIM
+from core.chunker import Chunk
+
+logger = logging.getLogger(__name__)
+
+
+class VectorStore:
+    """
+    ChromaDB-based vector store for RAG.
+
+    Features:
+    - Persistent storage to disk
+    - Similarity search with metadata filtering
+    - Batch insertion for efficiency
+    - Document management (add, delete, update)
+    """
+
+    def __init__(
+        self,
+        persist_directory: str = CHROMA_PERSIST_DIR,
+        collection_name: str = CHROMA_COLLECTION_NAME,
+    ):
+        """
+        Initialize vector store.
+
+        Args:
+            persist_directory: Directory for persistent storage
+            collection_name: Name of the ChromaDB collection
+        """
+        self.persist_directory = persist_directory
+        self.collection_name = collection_name
+
+        # Ensure persist directory exists
+        Path(persist_directory).mkdir(parents=True, exist_ok=True)
+
+        # Initialize ChromaDB client with persistence
+        self._client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(anonymized_telemetry=False),
+        )
+
+        # Get or create collection
+        self._collection = self._client.get_or_create_collection(
+            name=collection_name,
+            metadata={"hnsw:space": "cosine"},  # Use cosine similarity
+        )
+
+        logger.info(
+            f"VectorStore initialized: {persist_directory}/{collection_name} "
+            f"({self._collection.count()} documents)"
+        )
+
+    @property
+    def count(self) -> int:
+        """Get total number of documents in the collection."""
+        return self._collection.count()
+
+    def add_chunks(
+        self,
+        chunks: List[Chunk],
+        embeddings: List[np.ndarray],
+        batch_size: int = 100,
+    ) -> int:
+        """
+        Add chunks with their embeddings to the store.
+
+        Args:
+            chunks: List of Chunk objects
+            embeddings: List of embedding vectors (same order as chunks)
+            batch_size: Batch size for insertion
+
+        Returns:
+            Number of chunks added
+        """
+        if len(chunks) != len(embeddings):
+            raise ValueError(
+                f"Chunks ({len(chunks)}) and embeddings ({len(embeddings)}) "
+                "must have same length"
+            )
+
+        if not chunks:
+            return 0
+
+        # Prepare data for ChromaDB
+        ids = [chunk.chunk_id for chunk in chunks]
+        documents = [chunk.content for chunk in chunks]
+        metadatas = [
+            {
+                "doc_id": chunk.doc_id,
+                "chunk_index": chunk.metadata.get("chunk_index", 0),
+                "chunk_type": chunk.metadata.get("chunk_type", "text"),
+                "section": chunk.metadata.get("section", ""),
+                "filename": chunk.metadata.get("filename", ""),
+                "file_path": chunk.metadata.get("file_path", ""),
+                "token_count": chunk.token_count,
+            }
+            for chunk in chunks
+        ]
+
+        # Convert embeddings to list format
+        embeddings_list = [emb.tolist() for emb in embeddings]
+
+        # Add in batches
+        total_added = 0
+        for i in range(0, len(chunks), batch_size):
+            end_idx = min(i + batch_size, len(chunks))
+
+            self._collection.add(
+                ids=ids[i:end_idx],
+                embeddings=embeddings_list[i:end_idx],
+                documents=documents[i:end_idx],
+                metadatas=metadatas[i:end_idx],
+            )
+            total_added += end_idx - i
+
+            if len(chunks) > batch_size:
+                logger.debug(f"Added batch {i//batch_size + 1}: {total_added}/{len(chunks)}")
+
+        logger.info(f"Added {total_added} chunks to vector store")
+        return total_added
+
+    def query(
+        self,
+        query_embedding: np.ndarray,
+        n_results: int = 5,
+        where: Optional[Dict[str, Any]] = None,
+        include: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Query the vector store for similar documents.
+
+        Args:
+            query_embedding: Query vector
+            n_results: Number of results to return
+            where: Metadata filter (e.g., {"doc_id": "abc123"})
+            include: What to include in results (default: documents, metadatas, distances)
+
+        Returns:
+            Dictionary with keys: ids, documents, metadatas, distances
+        """
+        if include is None:
+            include = ["documents", "metadatas", "distances"]
+
+        results = self._collection.query(
+            query_embeddings=[query_embedding.tolist()],
+            n_results=n_results,
+            where=where,
+            include=include,
+        )
+
+        # Flatten results (query returns nested lists)
+        return {
+            "ids": results["ids"][0] if results["ids"] else [],
+            "documents": results["documents"][0] if results.get("documents") else [],
+            "metadatas": results["metadatas"][0] if results.get("metadatas") else [],
+            "distances": results["distances"][0] if results.get("distances") else [],
+        }
+
+    def query_text(
+        self,
+        query_text: str,
+        embedder: "Embedder",
+        n_results: int = 5,
+        where: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Query using text (embedder generates the embedding).
+
+        Args:
+            query_text: Text query
+            embedder: Embedder instance to generate query embedding
+            n_results: Number of results to return
+            where: Metadata filter
+
+        Returns:
+            Query results with ids, documents, metadatas, distances
+        """
+        query_embedding = embedder.embed(query_text)
+        return self.query(query_embedding, n_results=n_results, where=where)
+
+    def get_by_doc_id(self, doc_id: str) -> Dict[str, Any]:
+        """
+        Get all chunks for a specific document.
+
+        Args:
+            doc_id: Document ID to retrieve
+
+        Returns:
+            Dictionary with ids, documents, metadatas for the document
+        """
+        results = self._collection.get(
+            where={"doc_id": doc_id},
+            include=["documents", "metadatas"],
+        )
+        return results
+
+    def delete_by_doc_id(self, doc_id: str) -> int:
+        """
+        Delete all chunks for a specific document.
+
+        Args:
+            doc_id: Document ID to delete
+
+        Returns:
+            Number of chunks deleted
+        """
+        # Get chunks for this document first
+        existing = self.get_by_doc_id(doc_id)
+        chunk_ids = existing.get("ids", [])
+
+        if chunk_ids:
+            self._collection.delete(ids=chunk_ids)
+            logger.info(f"Deleted {len(chunk_ids)} chunks for document {doc_id}")
+
+        return len(chunk_ids)
+
+    def delete_by_ids(self, chunk_ids: List[str]) -> int:
+        """
+        Delete specific chunks by ID.
+
+        Args:
+            chunk_ids: List of chunk IDs to delete
+
+        Returns:
+            Number of chunks deleted
+        """
+        if not chunk_ids:
+            return 0
+
+        self._collection.delete(ids=chunk_ids)
+        logger.info(f"Deleted {len(chunk_ids)} chunks")
+        return len(chunk_ids)
+
+    def list_documents(self) -> List[Dict[str, Any]]:
+        """
+        List all unique documents in the store.
+
+        Returns:
+            List of document info dicts with doc_id, filename, chunk_count
+        """
+        # Get all metadata
+        all_data = self._collection.get(include=["metadatas"])
+
+        # Group by doc_id
+        docs = {}
+        for metadata in all_data.get("metadatas", []):
+            doc_id = metadata.get("doc_id", "unknown")
+            if doc_id not in docs:
+                docs[doc_id] = {
+                    "doc_id": doc_id,
+                    "filename": metadata.get("filename", ""),
+                    "file_path": metadata.get("file_path", ""),
+                    "chunk_count": 0,
+                }
+            docs[doc_id]["chunk_count"] += 1
+
+        return list(docs.values())
+
+    def clear(self) -> int:
+        """
+        Clear all documents from the collection.
+
+        Returns:
+            Number of documents deleted
+        """
+        count = self._collection.count()
+
+        # Delete and recreate collection
+        self._client.delete_collection(self.collection_name)
+        self._collection = self._client.create_collection(
+            name=self.collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+
+        logger.info(f"Cleared {count} documents from vector store")
+        return count
+
+    def stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about the vector store.
+
+        Returns:
+            Dictionary with collection stats
+        """
+        return {
+            "collection_name": self.collection_name,
+            "persist_directory": self.persist_directory,
+            "total_chunks": self._collection.count(),
+            "documents": len(self.list_documents()),
+        }
+
+
+class DocumentIndexer:
+    """
+    High-level interface for indexing documents into the vector store.
+
+    Combines chunking, embedding, and storage into a single workflow.
+    """
+
+    def __init__(
+        self,
+        vector_store: Optional[VectorStore] = None,
+        embedder: Optional["Embedder"] = None,
+        chunker: Optional["SemanticChunker"] = None,
+    ):
+        """
+        Initialize document indexer.
+
+        Args:
+            vector_store: VectorStore instance (creates default if None)
+            embedder: Embedder instance (creates default if None)
+            chunker: SemanticChunker instance (creates default if None)
+        """
+        # Lazy imports to avoid circular dependencies
+        if vector_store is None:
+            vector_store = VectorStore()
+        if embedder is None:
+            from core.embedder import Embedder
+            embedder = Embedder()
+        if chunker is None:
+            from core.chunker import SemanticChunker
+            chunker = SemanticChunker()
+
+        self.vector_store = vector_store
+        self.embedder = embedder
+        self.chunker = chunker
+
+        logger.info("DocumentIndexer initialized")
+
+    def index_document(
+        self,
+        parsed_doc: Dict[str, Any],
+        replace_existing: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Index a parsed document into the vector store.
+
+        Args:
+            parsed_doc: Output from DocumentParser.parse()
+            replace_existing: Delete existing chunks for this doc first
+
+        Returns:
+            Indexing result with doc_id, chunks_added, etc.
+        """
+        doc_id = parsed_doc.get("doc_id", "unknown")
+        filename = parsed_doc.get("metadata", {}).get("filename", "unknown")
+
+        logger.info(f"Indexing document: {filename} ({doc_id})")
+
+        # Delete existing if requested
+        if replace_existing:
+            deleted = self.vector_store.delete_by_doc_id(doc_id)
+            if deleted > 0:
+                logger.info(f"Deleted {deleted} existing chunks for {doc_id}")
+
+        # Chunk the document
+        chunks = self.chunker.chunk_document(parsed_doc)
+
+        if not chunks:
+            logger.warning(f"No chunks generated for document {doc_id}")
+            return {
+                "doc_id": doc_id,
+                "filename": filename,
+                "chunks_added": 0,
+                "status": "empty",
+            }
+
+        # Generate embeddings
+        embeddings = self.embedder.embed_chunks(chunks)
+
+        # Store in vector store
+        added = self.vector_store.add_chunks(chunks, embeddings)
+
+        logger.info(
+            f"Indexed document {filename}: {added} chunks, "
+            f"total store size: {self.vector_store.count}"
+        )
+
+        return {
+            "doc_id": doc_id,
+            "filename": filename,
+            "chunks_added": added,
+            "total_tokens": sum(c.token_count for c in chunks),
+            "status": "success",
+        }
+
+    def search(
+        self,
+        query: str,
+        n_results: int = 5,
+        doc_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for relevant chunks.
+
+        Args:
+            query: Search query text
+            n_results: Number of results to return
+            doc_id: Optional filter to specific document
+
+        Returns:
+            List of result dicts with content, metadata, and similarity score
+        """
+        where = {"doc_id": doc_id} if doc_id else None
+
+        results = self.vector_store.query_text(
+            query_text=query,
+            embedder=self.embedder,
+            n_results=n_results,
+            where=where,
+        )
+
+        # Format results
+        formatted = []
+        for i, (doc_id, content, metadata, distance) in enumerate(zip(
+            results["ids"],
+            results["documents"],
+            results["metadatas"],
+            results["distances"],
+        )):
+            formatted.append({
+                "rank": i + 1,
+                "chunk_id": doc_id,
+                "content": content,
+                "metadata": metadata,
+                "similarity": 1 - distance,  # Convert distance to similarity
+            })
+
+        return formatted

@@ -25,15 +25,18 @@ workpedia/
 │   ├── progress_tracker.py  # Processing progress monitoring
 │   ├── large_doc_handler.py # Split-process-merge for large PDFs
 │   ├── pdf_splitter.py  # PDF splitting by page ranges
-│   └── doc_merger.py    # Merge parsed chunk results
+│   ├── doc_merger.py    # Merge parsed chunk results
+│   ├── chunker.py       # SemanticChunker for structure-aware chunking
+│   └── embedder.py      # Embedder for semantic vector generation
 ├── processors/          # Document type-specific processors
 │   ├── pdf_processor.py # PDF processing with auto-fallback
 │   ├── docx_processor.py
 │   ├── html_processor.py
 │   └── image_processor.py
-├── storage/             # Vector store and metadata (Phase 3)
+├── storage/             # Vector store and metadata
+│   └── vector_store.py  # ChromaDB vector store interface
 ├── api/                 # API endpoints and query interface (Phase 4)
-├── tests/               # Test files (46 tests)
+├── tests/               # Test files (81 tests)
 ├── data/                # Sample data and test documents
 │   ├── input/           # Input documents for testing
 │   └── output/          # Processed output
@@ -83,7 +86,7 @@ ollama pull mistral
 pytest tests/ -v
 ```
 
-All 46 tests should pass.
+All 81 tests should pass.
 
 ## Usage
 
@@ -129,6 +132,52 @@ result = handler.process(
     "/path/to/large_document.pdf",
     progress_callback=on_progress
 )
+```
+
+### Chunking and Embedding (Phase 3)
+
+```python
+from core.chunker import SemanticChunker
+from core.embedder import Embedder
+from storage.vector_store import VectorStore, DocumentIndexer
+
+# Method 1: High-level DocumentIndexer (recommended)
+indexer = DocumentIndexer()
+
+# Parse and index a document
+from core.parser import DocumentParser
+parser = DocumentParser()
+parsed_doc = parser.parse("/path/to/document.pdf")
+result = indexer.index_document(parsed_doc)
+print(f"Indexed {result['chunks_added']} chunks")
+
+# Search for relevant content
+results = indexer.search("What are the main findings?", n_results=5)
+for r in results:
+    print(f"[{r['similarity']:.2f}] {r['content'][:200]}...")
+```
+
+```python
+# Method 2: Component-level control
+from core.chunker import SemanticChunker
+from core.embedder import Embedder
+from storage.vector_store import VectorStore
+
+# Chunk the document
+chunker = SemanticChunker(chunk_size=512, overlap=0.15)
+chunks = chunker.chunk_document(parsed_doc)
+
+# Generate embeddings
+embedder = Embedder()
+embeddings = embedder.embed_chunks(chunks)
+
+# Store in ChromaDB
+vector_store = VectorStore()
+vector_store.add_chunks(chunks, embeddings)
+
+# Query
+query_emb = embedder.embed("What methods were used?")
+results = vector_store.query(query_emb, n_results=5)
 ```
 
 ## Development Setup
@@ -186,13 +235,15 @@ Edit `config/config.py` to customize:
 - [x] Table header extraction and multi-page detection
 - [x] Large document handling (split-process-merge)
 - [x] Document validation and progress tracking
-- [x] 46 tests passing
 
-### Phase 3: Chunking and Embedding - Planned
+### Phase 3: Chunking and Embedding - Complete ✓
 
-- [ ] Semantic/hierarchical chunking
-- [ ] Embedding generation with sentence-transformers
-- [ ] ChromaDB vector storage integration
+- [x] Semantic/hierarchical chunking (preserves tables, sections, figures)
+- [x] Embedding generation with sentence-transformers/all-mpnet-base-v2
+- [x] ChromaDB vector storage integration
+- [x] DocumentIndexer for high-level indexing workflow
+- [x] Similarity search with metadata filtering
+- [x] 81 tests passing
 
 ### Phase 4: Query Interface - Planned
 
@@ -207,8 +258,9 @@ Edit `config/config.py` to customize:
 | Document Parsing | Docling (DocLayNet + TableFormer) | Extract structured content with layout awareness |
 | Large Doc Strategy | Split-Process-Merge | Handle 100+ page PDFs efficiently |
 | Structure Analysis | StructureAnalyzer | Extract hierarchy, tables, cross-references |
-| Vector DB | ChromaDB | Store and retrieve embeddings (Phase 3) |
-| Embeddings | sentence-transformers/all-mpnet-base-v2 | Generate semantic representations (Phase 3) |
+| Chunking | SemanticChunker | Structure-aware text splitting with overlap |
+| Embeddings | sentence-transformers/all-mpnet-base-v2 | 768-dim semantic representations |
+| Vector DB | ChromaDB | Persistent vector storage with similarity search |
 | LLM | Ollama + Mistral 7B | Local text generation (Phase 4) |
 
 ## Key Features
@@ -220,6 +272,8 @@ Edit `config/config.py` to customize:
 - **Rich Metadata**: Stores page numbers, bounding boxes, and document structure
 - **Robust Fallback**: Automatic backend switching if processing fails
 - **Cross-Reference Detection**: Identifies Table/Figure/Section/Equation references
+- **Semantic Search**: High-quality 768-dim embeddings with cosine similarity
+- **Persistent Storage**: ChromaDB vector store with disk persistence
 
 ## License
 
@@ -227,5 +281,5 @@ MIT
 
 ## Contributing
 
-This project is under active development. Phase 2 (Document Processing) is complete.
-Contributions welcome for Phase 3 (Chunking and Embedding).
+This project is under active development. Phases 1-3 are complete.
+Contributions welcome for Phase 4 (Query Interface with Ollama/Mistral).
