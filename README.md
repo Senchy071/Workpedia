@@ -339,6 +339,7 @@ Edit `config/config.py` to customize:
 
 - **Privacy-First**: All processing happens locally, no data sent to external APIs
 - **Structure-Aware**: Preserves document hierarchies, tables, and cross-references
+- **Automatic Table of Contents**: Synthetic TOC chunk created for each document enables queries like "List main chapters"
 - **Multi-Format**: Supports PDF, DOCX, HTML, and images
 - **Large Document Support**: Automatic chunking for 100+ page documents
 - **Rich Metadata**: Stores page numbers, bounding boxes, and document structure

@@ -375,6 +375,12 @@ class DocumentIndexer:
                 "status": "empty",
             }
 
+        # Create synthetic Table of Contents chunk
+        toc_chunk = self._create_toc_chunk(parsed_doc, doc_id)
+        if toc_chunk:
+            chunks.insert(0, toc_chunk)  # Add at beginning
+            logger.info(f"Created synthetic TOC chunk with {len(toc_chunk.content)} characters")
+
         # Generate embeddings
         embeddings = self.embedder.embed_chunks(chunks)
 
@@ -393,6 +399,239 @@ class DocumentIndexer:
             "total_tokens": sum(c.token_count for c in chunks),
             "status": "success",
         }
+
+    def _create_toc_chunk(
+        self,
+        parsed_doc: Dict[str, Any],
+        doc_id: str,
+    ) -> Optional[Chunk]:
+        """
+        Create a synthetic Table of Contents chunk from document structure.
+
+        This chunk lists all major sections/chapters and is helpful for
+        queries like "List main chapters" or "What are the sections?".
+
+        Strategy:
+        1. First try StructureAnalyzer to extract sections from parsed structure
+        2. If no sections found, parse the actual TOC from raw text
+
+        Args:
+            parsed_doc: Output from DocumentParser.parse()
+            doc_id: Document ID
+
+        Returns:
+            Chunk object with TOC, or None if no structure found
+        """
+        toc_content = None
+        sections_count = 0
+        extraction_method = None
+
+        # Strategy 1: Try StructureAnalyzer
+        try:
+            from core.analyzer import StructureAnalyzer
+
+            docling_doc = parsed_doc.get("docling_document")
+            if docling_doc:
+                analyzer = StructureAnalyzer()
+                structure = analyzer.analyze(docling_doc)
+                sections = structure.sections
+
+                if sections:
+                    toc_lines = [
+                        "# Table of Contents",
+                        "",
+                        "This document contains the following sections and chapters:",
+                        "",
+                    ]
+
+                    for section in sections:
+                        level = section.get("level", 1)
+                        text = section.get("text", "").strip()
+                        page = section.get("page")
+
+                        if not text:
+                            continue
+
+                        indent = "  " * (level - 1)
+                        if page:
+                            toc_lines.append(f"{indent}- {text} (page {page})")
+                        else:
+                            toc_lines.append(f"{indent}- {text}")
+
+                    if len(toc_lines) > 4:
+                        toc_content = "\n".join(toc_lines)
+                        sections_count = len(sections)
+                        extraction_method = "structure_analyzer"
+                        logger.info(f"TOC extracted via StructureAnalyzer: {sections_count} sections")
+
+        except Exception as e:
+            logger.debug(f"StructureAnalyzer failed: {e}")
+
+        # Strategy 2: Parse TOC from raw text (fallback)
+        if not toc_content:
+            raw_text = parsed_doc.get("raw_text", "")
+            if raw_text:
+                toc_content, sections_count = self._extract_toc_from_text(raw_text)
+                if toc_content:
+                    extraction_method = "text_parser"
+                    logger.info(f"TOC extracted via text parsing: {sections_count} entries")
+
+        if not toc_content:
+            logger.debug("No TOC could be extracted from document")
+            return None
+
+        # Create chunk with special metadata
+        chunk = Chunk(
+            chunk_id=f"{doc_id}_toc",
+            doc_id=doc_id,
+            content=toc_content,
+            token_count=len(toc_content) // 4,
+            metadata={
+                "chunk_index": -1,
+                "chunk_type": "table_of_contents",
+                "section": "Table of Contents",
+                "filename": parsed_doc.get("metadata", {}).get("filename", ""),
+                "file_path": parsed_doc.get("metadata", {}).get("file_path", ""),
+                "doc_pages": parsed_doc.get("metadata", {}).get("pages", 0),
+                "sections_count": sections_count,
+                "extraction_method": extraction_method,
+            },
+        )
+
+        return chunk
+
+    def _extract_toc_from_text(self, raw_text: str) -> tuple[Optional[str], int]:
+        """
+        Extract Table of Contents from raw document text.
+
+        Looks for common TOC markers and parses the structured content that follows.
+        Handles both plain text and markdown table formats.
+
+        Args:
+            raw_text: Full document text
+
+        Returns:
+            Tuple of (toc_content, entry_count) or (None, 0) if not found
+        """
+        import re
+
+        # Common TOC header patterns (including markdown headings)
+        toc_markers = [
+            r'(?:^|\n)\s*#{1,3}\s*(?:TABLE\s+OF\s+CONTENTS|CONTENTS|Table\s+of\s+Contents)\s*\n',
+            r'(?:^|\n)\s*(?:TABLE\s+OF\s+CONTENTS|CONTENTS|Table\s+of\s+Contents|Contents)\s*\n',
+        ]
+
+        toc_start = None
+        for pattern in toc_markers:
+            match = re.search(pattern, raw_text[:100000], re.IGNORECASE)  # Search first 100k chars
+            if match:
+                toc_start = match.end()
+                break
+
+        if toc_start is None:
+            return None, 0
+
+        # Extract TOC section (typically ends at a major section or after many lines)
+        toc_section = raw_text[toc_start:toc_start + 30000]  # Max 30k chars for TOC
+
+        # Parse TOC entries - look for lines with page numbers or chapter patterns
+        toc_entries = []
+        lines = toc_section.split('\n')
+
+        # Patterns for TOC entries (handle both plain text and markdown table formats)
+        entry_patterns = [
+            # Markdown table: "| TITLE  .  .  .  . 15 |" (dots with spaces between)
+            re.compile(r'^\|\s*([A-Za-z][A-Za-z\s\-/,\(\)\']+?)(?:\s+\.)+\s*(\d+)\s*\|', re.IGNORECASE),
+            # Markdown table: "| Title . . . . . . .15 |"
+            re.compile(r'^\|\s*([A-Za-z][^|]+?)\s*[\.]+\s*(\d+)\s*\|'),
+            # "Chapter 1 Title ... 15" or "1. Introduction ... 5"
+            re.compile(r'^[\|\s]*(?:Chapter\s+)?(\d+[\.\d]*\.?\s+.+?)\s*[\.…\s]+(\d+)\s*\|?\s*$', re.IGNORECASE),
+            # Markdown table format: "| TITLE . . . . 15 |" or "| TITLE ... 15 |"
+            re.compile(r'^\|?\s*(?:CHAPTER\s+\d+\s+)?([A-Z][A-Z\s\-/,]+?)[\s\.]+(\d+)\s*\|?\s*$'),
+            # Title with dots and page number (handles markdown table cell)
+            re.compile(r'^\|?\s*([A-Za-z][A-Za-z\s\-/,\(\)]+?)\s*[\.\s]{2,}(\d+)\s*\|?\s*$'),
+            # "INTRODUCTION ... 1" (all caps heading)
+            re.compile(r'^\|?\s*([A-Z][A-Z\s\-/]+(?:[A-Z]|\d))\s*[\.…\s]+(\d+)\s*\|?\s*$'),
+            # "Appendix A: Title ... 150"
+            re.compile(r'^\|?\s*((?:Appendix|Annex|Part|Chapter)\s+[A-Z\d]+[:\.\s].+?)\s*[\.…\s]+(\d+)\s*\|?\s*$', re.IGNORECASE),
+            # Generic: "Title text ... 15" with dots/spaces before page number
+            re.compile(r'^\|?\s*([A-Z][^|]{5,80}?)\s*[\.…\s]{3,}(\d+)\s*\|?\s*$'),
+        ]
+
+        # Also detect chapter headers like "CHAPTER 1 THE ALLIANCE'S..."
+        chapter_header_pattern = re.compile(
+            r'^\|?\s*(CHAPTER\s+\d+\s+[A-Z][A-Z\s\-/,]+)',
+            re.IGNORECASE
+        )
+
+        consecutive_non_toc = 0
+        seen_entries = set()  # Avoid duplicates
+
+        for line in lines:
+            original_line = line
+            line = line.strip()
+
+            # Skip empty lines and table separators
+            if not line or line.startswith('|--') or line.startswith('|-'):
+                continue
+
+            # Skip lines that are just table formatting
+            if re.match(r'^[\|\s\-:]+$', line):
+                continue
+
+            # Check for chapter header first
+            chapter_match = chapter_header_pattern.match(line)
+            if chapter_match:
+                title = chapter_match.group(1).strip()
+                title = re.sub(r'[\.\s|]+$', '', title)
+                if title and title not in seen_entries and len(title) > 5:
+                    seen_entries.add(title)
+                    toc_entries.append(f"- {title}")
+                    consecutive_non_toc = 0
+                    continue
+
+            # Check if line matches a TOC entry pattern
+            matched = False
+            for pattern in entry_patterns:
+                match = pattern.match(line)
+                if match:
+                    title = match.group(1).strip()
+                    page = match.group(2).strip()
+
+                    # Clean up title (remove excessive dots/spaces/pipes)
+                    title = re.sub(r'[\.\s\|]+$', '', title)
+                    title = re.sub(r'\s+', ' ', title)
+
+                    # Filter out garbage entries
+                    if len(title) > 3 and len(title) < 100 and title not in seen_entries:
+                        # Skip entries that look like just numbers or symbols
+                        if re.search(r'[a-zA-Z]{2,}', title):
+                            seen_entries.add(title)
+                            toc_entries.append(f"- {title} (page {page})")
+                            matched = True
+                            consecutive_non_toc = 0
+                            break
+
+            if not matched:
+                consecutive_non_toc += 1
+                # Stop if we hit many non-TOC lines (likely end of TOC)
+                if consecutive_non_toc > 15:
+                    break
+
+        if len(toc_entries) < 3:
+            return None, 0
+
+        # Build TOC content with semantic keywords for better retrieval
+        toc_lines = [
+            "# TABLE OF CONTENTS - Document Structure and Main Chapters",
+            "",
+            "TABLE OF CONTENTS: This is the complete list of main chapters and sections.",
+            "The book/document contains the following chapters, sections, and topics:",
+            "Main chapters, headings, and outline of this indexed book/document:",
+            "",
+        ] + toc_entries
+
+        return "\n".join(toc_lines), len(toc_entries)
 
     def search(
         self,

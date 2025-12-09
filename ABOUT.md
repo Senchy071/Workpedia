@@ -32,6 +32,7 @@ Workpedia is a **production-ready** privacy-focused RAG (Retrieval-Augmented Gen
 ✅ **RAG Pipeline**
 
 - Semantic/hierarchical chunking (512 tokens, 15% overlap)
+- Automatic Table of Contents generation for structural queries
 - 768-dim embeddings (sentence-transformers/all-mpnet-base-v2)
 - Persistent vector storage (ChromaDB)
 - Retrieval + generation with Ollama/Mistral

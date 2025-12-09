@@ -1,5 +1,67 @@
 # Critical Fixes and VLM Integration
 
+## Synthetic Table of Contents for Better Chapter Retrieval (December 2025)
+
+**Problem**: When users ask "List main chapters" or "What are the sections?", the system was returning glossary/acronym sections instead of the actual chapter structure.
+
+**Root Cause**: Pure semantic similarity search matched queries containing "list" to content that literally contains lists (glossaries, acronyms), rather than understanding the user wants document structure information.
+
+**Solution**: Automatically create a synthetic "Table of Contents" chunk during document indexing.
+
+### How It Works
+
+1. **During Indexing**: When a document is indexed, the system:
+   - Runs `StructureAnalyzer` on the parsed document
+   - Extracts all sections/chapters with their levels and page numbers
+   - Creates a synthetic TOC chunk with formatted chapter listing
+   - Marks it with `chunk_type: "table_of_contents"` metadata
+   - Adds it to the vector store alongside regular content chunks
+
+2. **During Retrieval**: When users ask structural questions:
+   - Query: "List main chapters of indexed book"
+   - The TOC chunk has high semantic similarity to such queries
+   - System retrieves TOC chunk instead of glossary
+   - LLM generates answer based on actual chapter structure
+
+### Example TOC Chunk
+
+```markdown
+# Table of Contents
+
+This document contains the following sections and chapters:
+
+- Introduction (page 1)
+- Chapter 1: Getting Started (page 5)
+  - Section 1.1: Installation (page 6)
+  - Section 1.2: Configuration (page 10)
+- Chapter 2: Advanced Topics (page 15)
+  - Section 2.1: Performance Tuning (page 16)
+- Glossary (page 200)
+```
+
+### Benefits
+
+- ✓ Users can now query document structure effectively
+- ✓ Works automatically for all newly indexed documents
+- ✓ No manual intervention required
+- ✓ Preserves hierarchical structure (indented subsections)
+- ✓ Includes page numbers for navigation
+
+### Implementation
+
+Location: `storage/vector_store.py:403-489` (DocumentIndexer._create_toc_chunk)
+
+The TOC chunk is created with special metadata:
+```python
+metadata = {
+    "chunk_type": "table_of_contents",
+    "chunk_index": -1,
+    "sections_count": len(sections),
+}
+```
+
+# Critical Fixes and VLM Integration
+
 ## Granite-Docling VLM for Structure Extraction ✗ TOO SLOW (Abandoning for Option 1)
 
 **Released**: September 17, 2025 by IBM
