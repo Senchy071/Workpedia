@@ -49,6 +49,81 @@ class OllamaClient:
         except requests.RequestException:
             return False
 
+    def check_model_available(self, model_name: Optional[str] = None) -> tuple[bool, str]:
+        """
+        Check if a specific model is available.
+
+        Args:
+            model_name: Model name to check (uses self.model if None)
+
+        Returns:
+            Tuple of (is_available, message)
+        """
+        model_name = model_name or self.model
+
+        # First check if server is reachable
+        if not self.is_available():
+            return False, f"Ollama server is not reachable at {self.base_url}"
+
+        # Check if model exists
+        available_models = self.list_models()
+        if not available_models:
+            return False, f"Could not retrieve model list from Ollama server at {self.base_url}"
+
+        # Check for exact match first
+        if model_name in available_models:
+            return True, f"Model '{model_name}' is available"
+
+        # Check for partial match (e.g., "mistral" matches "mistral:latest")
+        # This handles cases where user specifies "mistral" but Ollama has "mistral:latest"
+        matching_models = [m for m in available_models if m.startswith(f"{model_name}:")]
+        if matching_models:
+            matched_model = matching_models[0]
+            logger.info(f"Model '{model_name}' matched to '{matched_model}'")
+            return True, f"Model '{model_name}' is available (using {matched_model})"
+
+        # No match found
+        return False, (
+            f"Model '{model_name}' is not available. "
+            f"Available models: {', '.join(available_models) if available_models else 'none'}. "
+            f"Run 'ollama pull {model_name}' to download it."
+        )
+
+
+    def health_check(self) -> dict:
+        """
+        Perform comprehensive health check.
+
+        Returns:
+            Dictionary with health status and details
+        """
+        result = {
+            "server_reachable": False,
+            "model_available": False,
+            "model_name": self.model,
+            "base_url": self.base_url,
+            "available_models": [],
+            "message": "",
+        }
+
+        # Check server
+        if not self.is_available():
+            result["message"] = f"Ollama server is not reachable at {self.base_url}"
+            return result
+
+        result["server_reachable"] = True
+
+        # Get available models
+        available_models = self.list_models()
+        result["available_models"] = available_models
+
+        # Check model
+        is_available, message = self.check_model_available()
+        result["model_available"] = is_available
+        result["message"] = message
+
+        return result
+
     def list_models(self) -> List[str]:
         """List available models."""
         try:

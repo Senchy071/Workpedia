@@ -29,14 +29,52 @@ async def lifespan(app: FastAPI):
 
     logger.info("Initializing Workpedia API...")
 
-    # Initialize components
-    query_engine = QueryEngine()
-    document_indexer = DocumentIndexer(
-        vector_store=query_engine.vector_store,
-        embedder=query_engine.embedder,
-    )
+    try:
+        # Step 1: Validate Ollama is available
+        logger.info("Checking Ollama connectivity...")
+        ollama_client = OllamaClient()
+        health = ollama_client.health_check()
 
-    logger.info("Workpedia API initialized")
+        if not health["server_reachable"]:
+            error_msg = (
+                f"STARTUP FAILED: {health['message']}\n"
+                f"Please ensure Ollama is running:\n"
+                f"  1. Start Ollama: 'ollama serve'\n"
+                f"  2. Verify it's running: 'ollama list'\n"
+                f"  3. Check the URL: {health['base_url']}"
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        if not health["model_available"]:
+            error_msg = (
+                f"STARTUP FAILED: {health['message']}\n"
+                f"To fix this:\n"
+                f"  1. Pull the model: 'ollama pull {health['model_name']}'\n"
+                f"  2. Or use a different model in config/config.py\n"
+                f"  Available models: {', '.join(health['available_models']) if health['available_models'] else 'none'}"
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        logger.info(f"✓ Ollama connection validated: {health['message']}")
+
+        # Step 2: Initialize components
+        query_engine = QueryEngine()
+        document_indexer = DocumentIndexer(
+            vector_store=query_engine.vector_store,
+            embedder=query_engine.embedder,
+        )
+
+        logger.info("✓ Workpedia API initialized successfully")
+        logger.info(f"  - Vector Store: {query_engine.vector_store.count} chunks indexed")
+        logger.info(f"  - LLM: {health['model_name']}")
+        logger.info(f"  - Embedder: {query_engine.embedder.model_name}")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize Workpedia API: {e}")
+        raise
+
     yield
 
     # Cleanup

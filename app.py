@@ -54,12 +54,54 @@ st.markdown("""
 # Initialize session state
 if "query_engine" not in st.session_state:
     with st.spinner("Initializing RAG system..."):
-        st.session_state.query_engine = QueryEngine()
-        st.session_state.indexer = DocumentIndexer(
-            vector_store=st.session_state.query_engine.vector_store,
-            embedder=st.session_state.query_engine.embedder,
-        )
-        st.session_state.parser = DocumentParser()
+        try:
+            # Step 1: Validate Ollama connectivity
+            from core.llm import OllamaClient
+            logger.info("Checking Ollama connectivity...")
+
+            ollama_client = OllamaClient()
+            health = ollama_client.health_check()
+
+            if not health["server_reachable"]:
+                st.error(f"❌ **Ollama Server Not Reachable**")
+                st.error(health["message"])
+                st.info("""
+                **To fix this:**
+                1. Start Ollama: `ollama serve`
+                2. Verify it's running: `ollama list`
+                3. Check the URL in config/config.py
+                """)
+                st.stop()
+
+            if not health["model_available"]:
+                st.error(f"❌ **Model Not Available**")
+                st.error(health["message"])
+                st.info(f"""
+                **To fix this:**
+                1. Pull the model: `ollama pull {health['model_name']}`
+                2. Or use a different model in config/config.py
+
+                **Available models:** {', '.join(health['available_models']) if health['available_models'] else 'none'}
+                """)
+                st.stop()
+
+            logger.info(f"✓ Ollama validated: {health['message']}")
+
+            # Step 2: Initialize components
+            st.session_state.query_engine = QueryEngine()
+            st.session_state.indexer = DocumentIndexer(
+                vector_store=st.session_state.query_engine.vector_store,
+                embedder=st.session_state.query_engine.embedder,
+            )
+            st.session_state.parser = DocumentParser()
+
+            logger.info("✓ Streamlit app initialized successfully")
+
+        except Exception as e:
+            st.error(f"❌ **Initialization Failed**")
+            st.error(f"Error: {e}")
+            logger.error(f"Failed to initialize Streamlit app: {e}", exc_info=True)
+            st.stop()
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
