@@ -7,6 +7,8 @@ from typing import Dict, Any, List, Optional, Generator
 from core.llm import OllamaClient, RAG_SYSTEM_PROMPT, format_rag_prompt
 from core.embedder import Embedder
 from storage.vector_store import VectorStore
+from core.validators import validate_query, validate_query_params, validate_document_id
+from core.exceptions import InvalidQueryError, InvalidParameterError
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +105,38 @@ class QueryEngine:
 
         Returns:
             QueryResult with answer and sources
+
+        Raises:
+            InvalidQueryError: If query is invalid
+            InvalidParameterError: If parameters are invalid
         """
-        n_results = n_results or self.n_results
-        temperature = temperature or self.temperature
+        # Validate question
+        try:
+            question = validate_query(question, min_length=1, max_length=5000)
+        except ValueError as e:
+            raise InvalidQueryError(str(e)) from e
+
+        # Validate parameters
+        try:
+            params = validate_query_params(
+                n_results=n_results,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except ValueError as e:
+            raise InvalidParameterError(str(e)) from e
+
+        # Validate doc_id if provided
+        if doc_id is not None:
+            try:
+                doc_id = validate_document_id(doc_id)
+            except ValueError as e:
+                raise InvalidParameterError(f"Invalid doc_id: {e}") from e
+
+        # Use validated or default values
+        n_results = params.get('n_results', n_results or self.n_results)
+        temperature = params.get('temperature', temperature or self.temperature)
+        max_tokens = params.get('max_tokens', max_tokens)
 
         logger.info(f"Query: '{question[:50]}...' (n_results={n_results})")
 
@@ -170,9 +201,38 @@ class QueryEngine:
 
         Returns:
             Complete QueryResult (after iteration)
+
+        Raises:
+            InvalidQueryError: If query is invalid
+            InvalidParameterError: If parameters are invalid
         """
-        n_results = n_results or self.n_results
-        temperature = temperature or self.temperature
+        # Validate question
+        try:
+            question = validate_query(question, min_length=1, max_length=5000)
+        except ValueError as e:
+            raise InvalidQueryError(str(e)) from e
+
+        # Validate parameters
+        try:
+            params = validate_query_params(
+                n_results=n_results,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except ValueError as e:
+            raise InvalidParameterError(str(e)) from e
+
+        # Validate doc_id if provided
+        if doc_id is not None:
+            try:
+                doc_id = validate_document_id(doc_id)
+            except ValueError as e:
+                raise InvalidParameterError(f"Invalid doc_id: {e}") from e
+
+        # Use validated or default values
+        n_results = params.get('n_results', n_results or self.n_results)
+        temperature = params.get('temperature', temperature or self.temperature)
+        max_tokens = params.get('max_tokens', max_tokens)
 
         # Retrieve chunks
         chunks = self._retrieve(question, n_results, doc_id)
@@ -290,7 +350,33 @@ class QueryEngine:
 
         Returns:
             List of similar chunks with similarity scores
+
+        Raises:
+            InvalidQueryError: If query is invalid
+            InvalidParameterError: If parameters are invalid
         """
+        # Validate question
+        try:
+            question = validate_query(question, min_length=1, max_length=5000)
+        except ValueError as e:
+            raise InvalidQueryError(str(e)) from e
+
+        # Validate parameters
+        try:
+            params = validate_query_params(n_results=n_results)
+        except ValueError as e:
+            raise InvalidParameterError(str(e)) from e
+
+        # Validate doc_id if provided
+        if doc_id is not None:
+            try:
+                doc_id = validate_document_id(doc_id)
+            except ValueError as e:
+                raise InvalidParameterError(f"Invalid doc_id: {e}") from e
+
+        # Use validated values
+        n_results = params.get('n_results', n_results)
+
         return self._retrieve(question, n_results, doc_id)
 
     def health_check(self) -> Dict[str, Any]:

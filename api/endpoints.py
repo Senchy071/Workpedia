@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.query_engine import QueryEngine, QueryResult
@@ -36,6 +36,13 @@ from core.exceptions import (
     format_exception_chain,
 )
 from core.logging_config import set_request_id, log_performance
+from core.validators import (
+    validate_query,
+    validate_query_params,
+    validate_file_path,
+    validate_document_id,
+    sanitize_filename,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -329,11 +336,31 @@ async def workpedia_error_handler(request: Request, exc: WorkpediaError):
 
 class QueryRequest(BaseModel):
     """Request model for queries."""
-    question: str = Field(..., description="Question to ask about documents")
-    n_results: int = Field(5, ge=1, le=20, description="Number of chunks to retrieve")
+    question: str = Field(..., description="Question to ask about documents", min_length=1, max_length=5000)
+    n_results: int = Field(5, ge=1, le=50, description="Number of chunks to retrieve")
     doc_id: Optional[str] = Field(None, description="Filter to specific document")
-    temperature: float = Field(0.7, ge=0, le=1, description="LLM temperature")
-    max_tokens: Optional[int] = Field(None, description="Maximum response tokens")
+    temperature: float = Field(0.7, ge=0, le=2.0, description="LLM temperature")
+    max_tokens: Optional[int] = Field(None, ge=1, le=4096, description="Maximum response tokens")
+
+    @field_validator('question')
+    @classmethod
+    def validate_question(cls, v):
+        """Validate and sanitize query string."""
+        try:
+            return validate_query(v, min_length=1, max_length=5000)
+        except ValueError as e:
+            raise ValueError(f"Invalid question: {e}")
+
+    @field_validator('doc_id')
+    @classmethod
+    def validate_doc_id(cls, v):
+        """Validate document ID format."""
+        if v is None:
+            return v
+        try:
+            return validate_document_id(v)
+        except ValueError as e:
+            raise ValueError(f"Invalid doc_id: {e}")
 
 
 class QueryResponse(BaseModel):
@@ -357,6 +384,22 @@ class IndexRequest(BaseModel):
     file_path: str = Field(..., description="Path to document to index")
     replace_existing: bool = Field(True, description="Replace if already indexed")
 
+    @field_validator('file_path')
+    @classmethod
+    def validate_file_path_field(cls, v):
+        """Validate file path for security."""
+        try:
+            # Validate path with security checks
+            validated_path = validate_file_path(
+                v,
+                must_exist=True,
+                allowed_extensions={'.pdf', '.docx', '.html', '.htm', '.txt', '.md'}
+            )
+            # Convert back to string for consistency
+            return str(validated_path)
+        except ValueError as e:
+            raise ValueError(f"Invalid file_path: {e}")
+
 
 class IndexResponse(BaseModel):
     """Response model for indexing."""
@@ -377,9 +420,29 @@ class HealthResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     """Request model for semantic search."""
-    query: str = Field(..., description="Search query")
+    query: str = Field(..., description="Search query", min_length=1, max_length=5000)
     n_results: int = Field(5, ge=1, le=50, description="Number of results")
     doc_id: Optional[str] = Field(None, description="Filter to specific document")
+
+    @field_validator('query')
+    @classmethod
+    def validate_query_field(cls, v):
+        """Validate and sanitize search query."""
+        try:
+            return validate_query(v, min_length=1, max_length=5000)
+        except ValueError as e:
+            raise ValueError(f"Invalid query: {e}")
+
+    @field_validator('doc_id')
+    @classmethod
+    def validate_doc_id(cls, v):
+        """Validate document ID format."""
+        if v is None:
+            return v
+        try:
+            return validate_document_id(v)
+        except ValueError as e:
+            raise ValueError(f"Invalid doc_id: {e}")
 
 
 class SearchResult(BaseModel):
@@ -524,7 +587,7 @@ async def upload_and_index(
         raise HTTPException(status_code=503, detail="Service not initialized")
 
     # Validate file type
-    allowed_extensions = {".pdf", ".docx", ".html", ".htm"}
+    allowed_extensions = {".pdf", ".docx", ".html", ".htm", ".txt", ".md"}
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in allowed_extensions:
         raise HTTPException(
@@ -532,12 +595,35 @@ async def upload_and_index(
             detail=f"Unsupported file type: {file_ext}. Allowed: {allowed_extensions}",
         )
 
+    # Sanitize filename to prevent path traversal
+    try:
+        safe_filename = sanitize_filename(file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid filename: {e}")
+
     try:
         # Save uploaded file
         INPUT_DIR.mkdir(parents=True, exist_ok=True)
-        file_path = INPUT_DIR / file.filename
+        file_path = INPUT_DIR / safe_filename
+
+        # Read file content
+        content = await file.read()
+
+        # Validate file size (100MB max)
+        max_size_mb = 100
+        file_size_mb = len(content) / (1024 * 1024)
+        if file_size_mb > max_size_mb:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large: {file_size_mb:.2f}MB (max {max_size_mb}MB)"
+            )
+
+        # Validate file is not empty
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+        # Write file
         with open(file_path, "wb") as f:
-            content = await file.read()
             f.write(content)
 
         # Parse and index
@@ -549,6 +635,8 @@ async def upload_and_index(
         )
 
         return IndexResponse(**result)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Upload and index failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -573,6 +661,12 @@ async def get_document(doc_id: str):
     """Get document details by ID."""
     if query_engine is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
+
+    # Validate document ID
+    try:
+        doc_id = validate_document_id(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid document ID: {e}")
 
     try:
         result = query_engine.vector_store.get_by_doc_id(doc_id)
@@ -599,6 +693,12 @@ async def delete_document(doc_id: str):
     """Delete a document by ID."""
     if query_engine is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
+
+    # Validate document ID
+    try:
+        doc_id = validate_document_id(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid document ID: {e}")
 
     try:
         deleted = query_engine.vector_store.delete_by_doc_id(doc_id)
