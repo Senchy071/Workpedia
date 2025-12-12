@@ -1,6 +1,8 @@
 """FastAPI endpoints for Workpedia RAG system."""
 
 import logging
+import uuid
+import time
 from pathlib import Path
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -8,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.query_engine import QueryEngine, QueryResult
 from core.parser import DocumentParser
@@ -32,6 +35,7 @@ from core.exceptions import (
     QueryError,
     format_exception_chain,
 )
+from core.logging_config import set_request_id, log_performance
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +110,71 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+# =============================================================================
+# Middleware - Request ID tracking and performance logging
+# =============================================================================
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware to add request ID and log request/response."""
+
+    async def dispatch(self, request: Request, call_next):
+        """Process request with ID tracking and logging."""
+        # Generate unique request ID
+        request_id = str(uuid.uuid4())
+        set_request_id(request_id)
+
+        # Add to request state for access in endpoints
+        request.state.request_id = request_id
+
+        # Log request
+        start_time = time.time()
+        logger.info(
+            f"Request started: {request.method} {request.url.path}",
+            extra={'request_id': request_id, 'method': request.method, 'path': request.url.path}
+        )
+
+        # Process request
+        try:
+            response = await call_next(request)
+
+            # Log response
+            elapsed = time.time() - start_time
+            logger.info(
+                f"Request completed: {request.method} {request.url.path} - {response.status_code}",
+                extra={
+                    'request_id': request_id,
+                    'method': request.method,
+                    'path': request.url.path,
+                    'status_code': response.status_code,
+                    'elapsed_time': elapsed,
+                }
+            )
+
+            # Add request ID to response headers
+            response.headers["X-Request-ID"] = request_id
+
+            return response
+
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.error(
+                f"Request failed: {request.method} {request.url.path} - {e}",
+                extra={
+                    'request_id': request_id,
+                    'method': request.method,
+                    'path': request.url.path,
+                    'elapsed_time': elapsed,
+                    'error': str(e),
+                },
+                exc_info=True
+            )
+            raise
+
+
+# Add middleware
+app.add_middleware(RequestLoggingMiddleware)
 
 
 # =============================================================================

@@ -35,3 +35,21 @@ LARGE_DOC_SIZE_MB_THRESHOLD = 20  # Use stable backend if >20MB
 USE_VLM_FOR_LARGE_DOCS = True  # Use Granite-Docling VLM for large documents
 VLM_MODEL = "granite_docling"  # Options: "granite_docling", "smol_docling"
 VLM_PAGE_BATCH_SIZE = 8  # Pages processed in parallel (default: 4, RTX 3090: 8-16 max)
+
+# Logging settings
+LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_DIR = PROJECT_ROOT / "logs"  # Directory for log files
+LOG_STRUCTURED = False  # Use JSON structured logging (for production)
+LOG_CONSOLE_COLORS = True  # Use colored console output (for development)
+LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB per log file
+LOG_BACKUP_COUNT = 5  # Number of backup log files to keep
+
+# Per-module log levels (optional, override LOG_LEVEL for specific modules)
+LOG_MODULE_LEVELS = {
+    # "core.parser": "DEBUG",  # Enable debug logging for parser
+    # "core.llm": "WARNING",   # Reduce LLM logging
+}
+
+# Performance logging
+LOG_PERFORMANCE = True  # Log timing information for operations
+LOG_SLOW_OPERATION_THRESHOLD = 1.0  # Log warning if operation takes >1s
