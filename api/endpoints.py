@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, BackgroundTasks, Request
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from core.query_engine import QueryEngine, QueryResult
@@ -14,6 +14,24 @@ from core.parser import DocumentParser
 from core.llm import OllamaClient
 from storage.vector_store import VectorStore, DocumentIndexer
 from config.config import INPUT_DIR, OUTPUT_DIR
+from core.exceptions import (
+    WorkpediaError,
+    DocumentProcessingError,
+    DocumentNotFoundError,
+    DocumentParsingError,
+    UnsupportedFormatError,
+    OllamaConnectionError,
+    OllamaGenerationError,
+    OllamaTimeoutError,
+    VectorStoreError,
+    VectorStoreQueryError,
+    IndexingError,
+    ValidationError,
+    InvalidQueryError,
+    InvalidParameterError,
+    QueryError,
+    format_exception_chain,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +106,152 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+# =============================================================================
+# Exception Handlers - Map custom exceptions to HTTP status codes
+# =============================================================================
+
+@app.exception_handler(DocumentNotFoundError)
+async def document_not_found_handler(request: Request, exc: DocumentNotFoundError):
+    """Handle document not found errors - 404."""
+    logger.warning(f"Document not found: {format_exception_chain(exc)}")
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "DocumentNotFoundError",
+            "message": exc.message,
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(UnsupportedFormatError)
+async def unsupported_format_handler(request: Request, exc: UnsupportedFormatError):
+    """Handle unsupported format errors - 415."""
+    logger.warning(f"Unsupported format: {format_exception_chain(exc)}")
+    return JSONResponse(
+        status_code=415,
+        content={
+            "error": "UnsupportedFormatError",
+            "message": exc.message,
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(DocumentParsingError)
+async def document_parsing_handler(request: Request, exc: DocumentParsingError):
+    """Handle document parsing errors - 422."""
+    logger.error(f"Document parsing failed: {format_exception_chain(exc)}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "DocumentParsingError",
+            "message": exc.message,
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(OllamaConnectionError)
+async def ollama_connection_handler(request: Request, exc: OllamaConnectionError):
+    """Handle Ollama connection errors - 503."""
+    logger.error(f"Ollama connection failed: {format_exception_chain(exc)}")
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": "OllamaConnectionError",
+            "message": exc.message,
+            "context": exc.context,
+            "suggestion": "Check if Ollama server is running: ollama serve"
+        }
+    )
+
+
+@app.exception_handler(OllamaTimeoutError)
+async def ollama_timeout_handler(request: Request, exc: OllamaTimeoutError):
+    """Handle Ollama timeout errors - 504."""
+    logger.error(f"Ollama timeout: {format_exception_chain(exc)}")
+    return JSONResponse(
+        status_code=504,
+        content={
+            "error": "OllamaTimeoutError",
+            "message": exc.message,
+            "context": exc.context,
+            "suggestion": "The request took too long. Try a simpler query or increase timeout."
+        }
+    )
+
+
+@app.exception_handler(OllamaGenerationError)
+async def ollama_generation_handler(request: Request, exc: OllamaGenerationError):
+    """Handle Ollama generation errors - 500."""
+    logger.error(f"Ollama generation failed: {format_exception_chain(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "OllamaGenerationError",
+            "message": exc.message,
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(VectorStoreQueryError)
+async def vector_store_query_handler(request: Request, exc: VectorStoreQueryError):
+    """Handle vector store query errors - 500."""
+    logger.error(f"Vector store query failed: {format_exception_chain(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "VectorStoreQueryError",
+            "message": exc.message,
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(IndexingError)
+async def indexing_error_handler(request: Request, exc: IndexingError):
+    """Handle indexing errors - 500."""
+    logger.error(f"Indexing failed: {format_exception_chain(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "IndexingError",
+            "message": exc.message,
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(ValidationError)
+async def validation_error_handler(request: Request, exc: ValidationError):
+    """Handle validation errors - 400."""
+    logger.warning(f"Validation error: {format_exception_chain(exc)}")
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": "ValidationError",
+            "message": exc.message,
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(WorkpediaError)
+async def workpedia_error_handler(request: Request, exc: WorkpediaError):
+    """Handle generic Workpedia errors - 500."""
+    logger.error(f"Workpedia error: {format_exception_chain(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": exc.__class__.__name__,
+            "message": exc.message,
+            "context": exc.context,
+        }
+    )
 
 
 # =============================================================================

@@ -6,6 +6,11 @@ from typing import Optional, Generator, Dict, Any, List
 import requests
 
 from config.config import OLLAMA_MODEL, OLLAMA_BASE_URL
+from core.exceptions import (
+    OllamaConnectionError,
+    OllamaGenerationError,
+    OllamaTimeoutError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +136,13 @@ class OllamaClient:
             response.raise_for_status()
             data = response.json()
             return [m["name"] for m in data.get("models", [])]
+        except requests.Timeout as e:
+            logger.error(f"Timeout listing models: {e}")
+            # Don't raise, return empty list for graceful degradation
+            return []
         except requests.RequestException as e:
             logger.error(f"Failed to list models: {e}")
+            # Don't raise, return empty list for graceful degradation
             return []
 
     def generate(
@@ -187,9 +197,18 @@ class OllamaClient:
             response.raise_for_status()
             data = response.json()
             return data.get("response", "")
+        except requests.Timeout as e:
+            logger.error(f"Generation timed out after {self.timeout}s: {e}")
+            raise OllamaTimeoutError(timeout=self.timeout, model=self.model) from e
+        except requests.ConnectionError as e:
+            logger.error(f"Connection failed: {e}")
+            raise OllamaConnectionError(
+                base_url=self.base_url,
+                reason="Connection failed during generation"
+            ) from e
         except requests.RequestException as e:
             logger.error(f"Generation failed: {e}")
-            raise RuntimeError(f"Ollama generation failed: {e}")
+            raise OllamaGenerationError(reason=str(e), model=self.model) from e
 
     def _stream_generate(self, payload: Dict[str, Any]) -> Generator[str, None, None]:
         """Streaming generation."""
@@ -209,9 +228,18 @@ class OllamaClient:
                         yield data["response"]
                     if data.get("done", False):
                         break
+        except requests.Timeout as e:
+            logger.error(f"Streaming generation timed out after {self.timeout}s: {e}")
+            raise OllamaTimeoutError(timeout=self.timeout, model=self.model) from e
+        except requests.ConnectionError as e:
+            logger.error(f"Connection failed: {e}")
+            raise OllamaConnectionError(
+                base_url=self.base_url,
+                reason="Connection failed during streaming"
+            ) from e
         except requests.RequestException as e:
             logger.error(f"Streaming generation failed: {e}")
-            raise RuntimeError(f"Ollama streaming failed: {e}")
+            raise OllamaGenerationError(reason=str(e), model=self.model) from e
 
     def chat(
         self,
@@ -260,9 +288,18 @@ class OllamaClient:
             response.raise_for_status()
             data = response.json()
             return data.get("message", {}).get("content", "")
+        except requests.Timeout as e:
+            logger.error(f"Chat timed out after {self.timeout}s: {e}")
+            raise OllamaTimeoutError(timeout=self.timeout, model=self.model) from e
+        except requests.ConnectionError as e:
+            logger.error(f"Connection failed: {e}")
+            raise OllamaConnectionError(
+                base_url=self.base_url,
+                reason="Connection failed during chat"
+            ) from e
         except requests.RequestException as e:
             logger.error(f"Chat completion failed: {e}")
-            raise RuntimeError(f"Ollama chat failed: {e}")
+            raise OllamaGenerationError(reason=str(e), model=self.model) from e
 
     def _stream_chat(self, payload: Dict[str, Any]) -> Generator[str, None, None]:
         """Streaming chat completion."""
@@ -284,9 +321,18 @@ class OllamaClient:
                             yield content
                     if data.get("done", False):
                         break
+        except requests.Timeout as e:
+            logger.error(f"Streaming chat timed out after {self.timeout}s: {e}")
+            raise OllamaTimeoutError(timeout=self.timeout, model=self.model) from e
+        except requests.ConnectionError as e:
+            logger.error(f"Connection failed: {e}")
+            raise OllamaConnectionError(
+                base_url=self.base_url,
+                reason="Connection failed during streaming chat"
+            ) from e
         except requests.RequestException as e:
             logger.error(f"Streaming chat failed: {e}")
-            raise RuntimeError(f"Ollama streaming chat failed: {e}")
+            raise OllamaGenerationError(reason=str(e), model=self.model) from e
 
 
 # Default prompts for RAG

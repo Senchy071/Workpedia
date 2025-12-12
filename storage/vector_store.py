@@ -10,6 +10,14 @@ from chromadb.config import Settings
 
 from config.config import CHROMA_PERSIST_DIR, CHROMA_COLLECTION_NAME, EMBEDDING_DIM
 from core.chunker import Chunk
+from core.exceptions import (
+    VectorStoreError,
+    VectorStoreConnectionError,
+    DocumentNotIndexedError,
+    IndexingError,
+    VectorStoreQueryError,
+    InvalidDocumentIdError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,24 +49,36 @@ class VectorStore:
         self.collection_name = collection_name
 
         # Ensure persist directory exists
-        Path(persist_directory).mkdir(parents=True, exist_ok=True)
+        try:
+            Path(persist_directory).mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            raise VectorStoreConnectionError(
+                store_path=persist_directory,
+                reason=f"Failed to create persist directory: {e}"
+            ) from e
 
         # Initialize ChromaDB client with persistence
-        self._client = chromadb.PersistentClient(
-            path=persist_directory,
-            settings=Settings(anonymized_telemetry=False),
-        )
+        try:
+            self._client = chromadb.PersistentClient(
+                path=persist_directory,
+                settings=Settings(anonymized_telemetry=False),
+            )
 
-        # Get or create collection
-        self._collection = self._client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},  # Use cosine similarity
-        )
+            # Get or create collection
+            self._collection = self._client.get_or_create_collection(
+                name=collection_name,
+                metadata={"hnsw:space": "cosine"},  # Use cosine similarity
+            )
 
-        logger.info(
-            f"VectorStore initialized: {persist_directory}/{collection_name} "
-            f"({self._collection.count()} documents)"
-        )
+            logger.info(
+                f"VectorStore initialized: {persist_directory}/{collection_name} "
+                f"({self._collection.count()} documents)"
+            )
+        except Exception as e:
+            raise VectorStoreConnectionError(
+                store_path=persist_directory,
+                reason=f"Failed to initialize ChromaDB: {e}"
+            ) from e
 
     @property
     def count(self) -> int:
@@ -81,11 +101,14 @@ class VectorStore:
 
         Returns:
             Number of chunks added
+
+        Raises:
+            IndexingError: If adding chunks fails
         """
         if len(chunks) != len(embeddings):
-            raise ValueError(
-                f"Chunks ({len(chunks)}) and embeddings ({len(embeddings)}) "
-                "must have same length"
+            raise IndexingError(
+                doc_id=chunks[0].doc_id if chunks else "unknown",
+                reason=f"Chunks ({len(chunks)}) and embeddings ({len(embeddings)}) must have same length"
             )
 
         if not chunks:
@@ -112,22 +135,28 @@ class VectorStore:
 
         # Add in batches
         total_added = 0
-        for i in range(0, len(chunks), batch_size):
-            end_idx = min(i + batch_size, len(chunks))
+        try:
+            for i in range(0, len(chunks), batch_size):
+                end_idx = min(i + batch_size, len(chunks))
 
-            self._collection.add(
-                ids=ids[i:end_idx],
-                embeddings=embeddings_list[i:end_idx],
-                documents=documents[i:end_idx],
-                metadatas=metadatas[i:end_idx],
-            )
-            total_added += end_idx - i
+                self._collection.add(
+                    ids=ids[i:end_idx],
+                    embeddings=embeddings_list[i:end_idx],
+                    documents=documents[i:end_idx],
+                    metadatas=metadatas[i:end_idx],
+                )
+                total_added += end_idx - i
 
-            if len(chunks) > batch_size:
-                logger.debug(f"Added batch {i//batch_size + 1}: {total_added}/{len(chunks)}")
+                if len(chunks) > batch_size:
+                    logger.debug(f"Added batch {i//batch_size + 1}: {total_added}/{len(chunks)}")
 
-        logger.info(f"Added {total_added} chunks to vector store")
-        return total_added
+            logger.info(f"Added {total_added} chunks to vector store")
+            return total_added
+        except Exception as e:
+            raise IndexingError(
+                doc_id=chunks[0].doc_id if chunks else "unknown",
+                reason=f"Failed to add chunks to ChromaDB: {e}"
+            ) from e
 
     def query(
         self,
@@ -147,24 +176,33 @@ class VectorStore:
 
         Returns:
             Dictionary with keys: ids, documents, metadatas, distances
+
+        Raises:
+            VectorStoreQueryError: If query fails
         """
         if include is None:
             include = ["documents", "metadatas", "distances"]
 
-        results = self._collection.query(
-            query_embeddings=[query_embedding.tolist()],
-            n_results=n_results,
-            where=where,
-            include=include,
-        )
+        try:
+            results = self._collection.query(
+                query_embeddings=[query_embedding.tolist()],
+                n_results=n_results,
+                where=where,
+                include=include,
+            )
 
-        # Flatten results (query returns nested lists)
-        return {
-            "ids": results["ids"][0] if results["ids"] else [],
-            "documents": results["documents"][0] if results.get("documents") else [],
-            "metadatas": results["metadatas"][0] if results.get("metadatas") else [],
-            "distances": results["distances"][0] if results.get("distances") else [],
-        }
+            # Flatten results (query returns nested lists)
+            return {
+                "ids": results["ids"][0] if results["ids"] else [],
+                "documents": results["documents"][0] if results.get("documents") else [],
+                "metadatas": results["metadatas"][0] if results.get("metadatas") else [],
+                "distances": results["distances"][0] if results.get("distances") else [],
+            }
+        except Exception as e:
+            raise VectorStoreQueryError(
+                reason=f"ChromaDB query failed: {e}",
+                query_length=len(query_embedding)
+            ) from e
 
     def query_text(
         self,
@@ -197,12 +235,20 @@ class VectorStore:
 
         Returns:
             Dictionary with ids, documents, metadatas for the document
+
+        Raises:
+            VectorStoreQueryError: If get operation fails
         """
-        results = self._collection.get(
-            where={"doc_id": doc_id},
-            include=["documents", "metadatas"],
-        )
-        return results
+        try:
+            results = self._collection.get(
+                where={"doc_id": doc_id},
+                include=["documents", "metadatas"],
+            )
+            return results
+        except Exception as e:
+            raise VectorStoreQueryError(
+                reason=f"Failed to get document by ID: {e}"
+            ) from e
 
     def delete_by_doc_id(self, doc_id: str) -> int:
         """

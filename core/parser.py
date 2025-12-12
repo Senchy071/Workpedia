@@ -20,6 +20,11 @@ from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 from docling.pipeline.vlm_pipeline import VlmPipeline
 
 from config.config import PROJECT_ROOT, VLM_MODEL, VLM_PAGE_BATCH_SIZE
+from core.exceptions import (
+    DocumentNotFoundError,
+    DocumentParsingError,
+    UnsupportedFormatError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +182,7 @@ class DocumentParser:
         file_path = Path(file_path)
 
         if not file_path.exists():
-            raise FileNotFoundError(f"Document not found: {file_path}")
+            raise DocumentNotFoundError(str(file_path))
 
         # Generate unique document ID
         doc_id = str(uuid.uuid4())
@@ -244,9 +249,16 @@ class DocumentParser:
                 },
             }
 
-        except Exception as e:
-            logger.error(f"Failed to parse document {file_path.name}: {e}")
+        except DocumentNotFoundError:
+            # Re-raise our custom exceptions as-is
             raise
+        except Exception as e:
+            # Wrap other exceptions in DocumentParsingError with context
+            logger.error(f"Failed to parse document {file_path.name}: {e}")
+            raise DocumentParsingError(
+                file_path=str(file_path),
+                reason=str(e)
+            ) from e
 
     def _has_tables(self, docling_doc) -> bool:
         """Check if document contains tables."""
