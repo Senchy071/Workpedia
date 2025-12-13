@@ -2,9 +2,9 @@
 
 import logging
 import tempfile
-from pathlib import Path
-from typing import List, Tuple, Optional
 from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 from pypdf import PdfReader, PdfWriter
 

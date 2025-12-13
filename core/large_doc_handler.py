@@ -1,22 +1,22 @@
 """Handler for processing large documents using split-process-merge strategy."""
 
-import logging
 import gc
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple, Callable
+import logging
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from pypdf import PdfReader
 
 from config.config import (
-    MAX_PAGES_SINGLE_PASS,
-    MAX_FILE_SIZE_MB,
     CHUNK_SIZE_PAGES,
+    MAX_FILE_SIZE_MB,
+    MAX_PAGES_SINGLE_PASS,
     VLM_MODEL,
 )
+from core.doc_merger import ChunkInfo, DocumentMerger, create_chunk_info
 from core.parser import DocumentParser
-from core.pdf_splitter import PDFSplitter, SplitResult
-from core.doc_merger import DocumentMerger, ChunkInfo, create_chunk_info
+from core.pdf_splitter import PDFSplitter
 
 logger = logging.getLogger(__name__)
 

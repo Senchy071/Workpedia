@@ -3,9 +3,9 @@
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
-from config.config import CHUNK_SIZE, CHUNK_OVERLAP
+from config.config import CHUNK_OVERLAP, CHUNK_SIZE
 
 logger = logging.getLogger(__name__)
 

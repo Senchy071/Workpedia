@@ -1,29 +1,28 @@
 """Ollama LLM client for local text generation."""
 
-import logging
 import json
-from typing import Optional, Generator, Dict, Any, List
+import logging
+from typing import Any, Dict, Generator, List, Optional
+
 import requests
 
 from config.config import (
-    OLLAMA_MODEL,
-    OLLAMA_BASE_URL,
-    RETRY_ENABLED,
-    RETRY_MAX_ATTEMPTS,
-    RETRY_INITIAL_DELAY,
-    RETRY_MAX_DELAY,
-    RETRY_EXPONENTIAL_BASE,
-    RETRY_JITTER,
     CIRCUIT_BREAKER_ENABLED,
     CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+    CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
     CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
     CIRCUIT_BREAKER_SUCCESS_THRESHOLD,
-    CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
+    OLLAMA_BASE_URL,
+    OLLAMA_MODEL,
+    RETRY_ENABLED,
+    RETRY_EXPONENTIAL_BASE,
+    RETRY_INITIAL_DELAY,
+    RETRY_JITTER,
+    RETRY_MAX_ATTEMPTS,
+    RETRY_MAX_DELAY,
     TIMEOUT_DEFAULT,
-    TIMEOUT_HEALTH_CHECK,
-    TIMEOUT_LIST_MODELS,
     TIMEOUT_GENERATE,
-    TIMEOUT_GENERATE_STREAM,
+    TIMEOUT_LIST_MODELS,
 )
 from core.exceptions import (
     OllamaConnectionError,
@@ -33,10 +32,8 @@ from core.exceptions import (
 from core.resilience import (
     CircuitBreaker,
     CircuitBreakerConfig,
-    CircuitBreakerError,
     RetryConfig,
     retry_with_backoff,
-    is_retryable_error,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,7 +72,7 @@ class OllamaClient:
             enable_circuit_breaker: Enable circuit breaker pattern
         """
         self.model = model
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.timeout = timeout if timeout is not None else TIMEOUT_DEFAULT
         self.enable_retry = enable_retry
         self.enable_circuit_breaker = enable_circuit_breaker
@@ -169,7 +166,6 @@ class OllamaClient:
             f"Run 'ollama pull {model_name}' to download it."
         )
 
-
     def health_check(self) -> dict:
         """
         Perform comprehensive health check.
@@ -206,11 +202,9 @@ class OllamaClient:
 
     def list_models(self) -> List[str]:
         """List available models with retry logic."""
+
         def _list_models_internal():
-            response = requests.get(
-                f"{self.base_url}/api/tags",
-                timeout=TIMEOUT_LIST_MODELS
-            )
+            response = requests.get(f"{self.base_url}/api/tags", timeout=TIMEOUT_LIST_MODELS)
             response.raise_for_status()
             data = response.json()
             return [m["name"] for m in data.get("models", [])]
@@ -220,10 +214,11 @@ class OllamaClient:
                 # Apply retry logic
                 @retry_with_backoff(
                     config=self.retry_config,
-                    retryable_exceptions=(requests.Timeout, requests.ConnectionError)
+                    retryable_exceptions=(requests.Timeout, requests.ConnectionError),
                 )
                 def _with_retry():
                     return _list_models_internal()
+
                 return _with_retry()
             else:
                 return _list_models_internal()
@@ -280,6 +275,7 @@ class OllamaClient:
 
     def _sync_generate(self, payload: Dict[str, Any]) -> str:
         """Synchronous generation with retry and circuit breaker."""
+
         def _generate_internal():
             try:
                 response = requests.post(
@@ -296,8 +292,7 @@ class OllamaClient:
             except requests.ConnectionError as e:
                 logger.error(f"Connection failed: {e}")
                 raise OllamaConnectionError(
-                    base_url=self.base_url,
-                    reason="Connection failed during generation"
+                    base_url=self.base_url, reason="Connection failed during generation"
                 ) from e
             except requests.RequestException as e:
                 logger.error(f"Generation failed: {e}")
@@ -309,6 +304,7 @@ class OllamaClient:
 
         # Apply retry logic if enabled
         if self.enable_retry:
+
             @retry_with_backoff(
                 config=self.retry_config,
                 retryable_exceptions=(
@@ -316,10 +312,11 @@ class OllamaClient:
                     OllamaTimeoutError,
                     requests.Timeout,
                     requests.ConnectionError,
-                )
+                ),
             )
             def _with_retry():
                 return _generate_internal()
+
             return _with_retry()
         else:
             return _generate_internal()
@@ -348,8 +345,7 @@ class OllamaClient:
         except requests.ConnectionError as e:
             logger.error(f"Connection failed: {e}")
             raise OllamaConnectionError(
-                base_url=self.base_url,
-                reason="Connection failed during streaming"
+                base_url=self.base_url, reason="Connection failed during streaming"
             ) from e
         except requests.RequestException as e:
             logger.error(f"Streaming generation failed: {e}")
@@ -393,6 +389,7 @@ class OllamaClient:
 
     def _sync_chat(self, payload: Dict[str, Any]) -> str:
         """Synchronous chat completion with retry and circuit breaker."""
+
         def _chat_internal():
             try:
                 response = requests.post(
@@ -409,8 +406,7 @@ class OllamaClient:
             except requests.ConnectionError as e:
                 logger.error(f"Connection failed: {e}")
                 raise OllamaConnectionError(
-                    base_url=self.base_url,
-                    reason="Connection failed during chat"
+                    base_url=self.base_url, reason="Connection failed during chat"
                 ) from e
             except requests.RequestException as e:
                 logger.error(f"Chat completion failed: {e}")
@@ -422,6 +418,7 @@ class OllamaClient:
 
         # Apply retry logic if enabled
         if self.enable_retry:
+
             @retry_with_backoff(
                 config=self.retry_config,
                 retryable_exceptions=(
@@ -429,10 +426,11 @@ class OllamaClient:
                     OllamaTimeoutError,
                     requests.Timeout,
                     requests.ConnectionError,
-                )
+                ),
             )
             def _with_retry():
                 return _chat_internal()
+
             return _with_retry()
         else:
             return _chat_internal()
@@ -463,8 +461,7 @@ class OllamaClient:
         except requests.ConnectionError as e:
             logger.error(f"Connection failed: {e}")
             raise OllamaConnectionError(
-                base_url=self.base_url,
-                reason="Connection failed during streaming chat"
+                base_url=self.base_url, reason="Connection failed during streaming chat"
             ) from e
         except requests.RequestException as e:
             logger.error(f"Streaming chat failed: {e}")
@@ -472,7 +469,8 @@ class OllamaClient:
 
 
 # Default prompts for RAG
-RAG_SYSTEM_PROMPT = """You are a helpful assistant that answers questions based on the provided context.
+RAG_SYSTEM_PROMPT = """You are a helpful assistant that answers questions \
+based on the provided context.
 
 Instructions:
 - Answer questions using ONLY the information from the provided context

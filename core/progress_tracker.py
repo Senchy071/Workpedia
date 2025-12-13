@@ -1,10 +1,9 @@
 """Progress tracking for document processing."""
 
 import logging
-import time
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 

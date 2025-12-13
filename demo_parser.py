@@ -5,17 +5,15 @@ import logging
 import sys
 from pathlib import Path
 
-from processors.pdf_processor import PDFProcessor
+from core.validator import DocumentValidator
 from processors.docx_processor import DOCXProcessor
 from processors.html_processor import HTMLProcessor
 from processors.image_processor import ImageProcessor
-from core.validator import DocumentValidator
-from core.progress_tracker import ProgressTracker
+from processors.pdf_processor import PDFProcessor
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 
@@ -59,26 +57,26 @@ def process_document(file_path: Path):
 
         # Display results
         print(f"\nDocument ID: {result['doc_id']}")
-        print(f"\nMetadata:")
-        for key, value in result['metadata'].items():
+        print("\nMetadata:")
+        for key, value in result["metadata"].items():
             print(f"  {key}: {value}")
 
-        print(f"\nStructure:")
-        for key, value in result['structure'].items():
+        print("\nStructure:")
+        for key, value in result["structure"].items():
             print(f"  {key}: {value}")
 
-        if 'structure_analysis' in result:
-            print(f"\nStructure Analysis:")
-            analysis = result['structure_analysis']
-            if 'sections' in analysis:
+        if "structure_analysis" in result:
+            print("\nStructure Analysis:")
+            analysis = result["structure_analysis"]
+            if "sections" in analysis:
                 print(f"  Sections: {len(analysis['sections'])}")
-            if 'tables' in analysis:
+            if "tables" in analysis:
                 print(f"  Tables: {len(analysis['tables'])}")
-            if 'figures' in analysis:
+            if "figures" in analysis:
                 print(f"  Figures: {len(analysis['figures'])}")
 
         # Validate results
-        print(f"\nValidating results...")
+        print("\nValidating results...")
         validator = DocumentValidator()
         validation_report = validator.validate(result)
 
@@ -92,9 +90,9 @@ def process_document(file_path: Path):
                 print(f"  [{issue.severity.upper()}] {issue.message}")
 
         # Show text preview
-        if result.get('raw_text'):
-            text_preview = result['raw_text'][:200]
-            print(f"\nText Preview (first 200 chars):")
+        if result.get("raw_text"):
+            text_preview = result["raw_text"][:200]
+            print("\nText Preview (first 200 chars):")
             print(f"  {text_preview}...")
 
         print(f"\n{'='*70}\n")
@@ -102,6 +100,7 @@ def process_document(file_path: Path):
     except Exception as e:
         print(f"Error processing document: {e}")
         import traceback
+
         traceback.print_exc()
 
 
@@ -111,8 +110,16 @@ def main():
     print("Phase 2: Document Processing Foundation\n")
 
     supported_extensions = [
-        ".pdf", ".docx", ".doc", ".html", ".htm",
-        ".png", ".jpg", ".jpeg", ".tiff", ".tif"
+        ".pdf",
+        ".docx",
+        ".doc",
+        ".html",
+        ".htm",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tiff",
+        ".tif",
     ]
 
     # Check if a file path was provided as command-line argument
@@ -133,7 +140,8 @@ def main():
             return
 
         # Process single file
-        print(f"Processing single file: {input_path.name} ({input_path.stat().st_size / (1024*1024):.2f} MB)\n")
+        size_mb = input_path.stat().st_size / (1024 * 1024)
+        print(f"Processing single file: {input_path.name} ({size_mb:.2f} MB)\n")
         process_document(input_path)
         print("\nDemo complete!")
         return
@@ -158,8 +166,7 @@ def main():
 
     # Find supported documents
     documents = [
-        f for f in input_dir.iterdir()
-        if f.is_file() and f.suffix.lower() in supported_extensions
+        f for f in input_dir.iterdir() if f.is_file() and f.suffix.lower() in supported_extensions
     ]
 
     if not documents:

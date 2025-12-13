@@ -4,26 +4,25 @@ import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
-from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
+from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import (
-    PdfPipelineOptions,
-    AcceleratorOptions,
     AcceleratorDevice,
+    AcceleratorOptions,
+    PdfPipelineOptions,
     VlmPipelineOptions,
 )
 from docling.datamodel.settings import settings
-from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
-from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.pipeline.vlm_pipeline import VlmPipeline
 
-from config.config import PROJECT_ROOT, VLM_MODEL, VLM_PAGE_BATCH_SIZE
+from config.config import VLM_MODEL, VLM_PAGE_BATCH_SIZE
 from core.exceptions import (
     DocumentNotFoundError,
     DocumentParsingError,
-    UnsupportedFormatError,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,14 +85,9 @@ class DocumentParser:
 
         Recreates converter every N documents to prevent memory leaks.
         """
-        if (
-            self._converter is None
-            or self._docs_processed >= self._max_docs_before_recreation
-        ):
+        if self._converter is None or self._docs_processed >= self._max_docs_before_recreation:
             if self._converter is not None:
-                logger.info(
-                    f"Recreating converter after {self._docs_processed} documents"
-                )
+                logger.info(f"Recreating converter after {self._docs_processed} documents")
                 # Allow garbage collection
                 self._converter = None
 
@@ -119,7 +113,9 @@ class DocumentParser:
                     }
                 )
 
-                backend_name = f"VlmPipeline (granite-docling-258M with batch_size={VLM_PAGE_BATCH_SIZE})"
+                backend_name = (
+                    f"VlmPipeline (granite-docling-258M with batch_size={VLM_PAGE_BATCH_SIZE})"
+                )
 
             else:
                 # Standard PDF backends (v2 or pypdfium)
@@ -207,7 +203,7 @@ class DocumentParser:
             processing_time = (datetime.now() - start_time).total_seconds()
 
             # Extract basic structure info
-            num_pages = len(docling_doc.pages) if hasattr(docling_doc, 'pages') else 0
+            num_pages = len(docling_doc.pages) if hasattr(docling_doc, "pages") else 0
 
             # Get text content
             raw_text = docling_doc.export_to_markdown()
@@ -255,17 +251,14 @@ class DocumentParser:
         except Exception as e:
             # Wrap other exceptions in DocumentParsingError with context
             logger.error(f"Failed to parse document {file_path.name}: {e}")
-            raise DocumentParsingError(
-                file_path=str(file_path),
-                reason=str(e)
-            ) from e
+            raise DocumentParsingError(file_path=str(file_path), reason=str(e)) from e
 
     def _has_tables(self, docling_doc) -> bool:
         """Check if document contains tables."""
         try:
             # Check for table elements in document
             for item in docling_doc.iterate_items():
-                if hasattr(item, 'label') and 'table' in item.label.lower():
+                if hasattr(item, "label") and "table" in item.label.lower():
                     return True
             return False
         except Exception:
@@ -276,7 +269,7 @@ class DocumentParser:
         try:
             # Check for figure elements in document
             for item in docling_doc.iterate_items():
-                if hasattr(item, 'label') and 'figure' in item.label.lower():
+                if hasattr(item, "label") and "figure" in item.label.lower():
                     return True
             return False
         except Exception:

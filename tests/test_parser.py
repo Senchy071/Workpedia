@@ -1,19 +1,19 @@
 """Tests for document parser and related components."""
 
-import pytest
-from pathlib import Path
 import tempfile
-import os
+from pathlib import Path
 
-from core.parser import DocumentParser
-from core.large_doc_handler import LargeDocumentHandler
+import pytest
+
 from core.analyzer import StructureAnalyzer
-from core.validator import DocumentValidator
+from core.large_doc_handler import LargeDocumentHandler
+from core.parser import DocumentParser
 from core.progress_tracker import ProgressTracker
-from processors.pdf_processor import PDFProcessor
+from core.validator import DocumentValidator
 from processors.docx_processor import DOCXProcessor
 from processors.html_processor import HTMLProcessor
 from processors.image_processor import ImageProcessor
+from processors.pdf_processor import PDFProcessor
 
 
 class TestDocumentParser:
@@ -270,9 +270,9 @@ class TestProcessors:
 def test_config_imports():
     """Test that configuration can be imported."""
     from config.config import (
-        MAX_PAGES_SINGLE_PASS,
-        MAX_FILE_SIZE_MB,
         CHUNK_SIZE_PAGES,
+        MAX_FILE_SIZE_MB,
+        MAX_PAGES_SINGLE_PASS,
     )
 
     assert MAX_PAGES_SINGLE_PASS == 100
@@ -382,8 +382,8 @@ class TestCrossReferenceExtraction:
 
     def test_cross_ref_patterns(self):
         """Test cross-reference regex patterns."""
+
         from core.analyzer import StructureAnalyzer
-        import re
 
         analyzer = StructureAnalyzer()
 

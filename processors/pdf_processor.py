@@ -2,18 +2,18 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from pypdf import PdfReader
 
-from core.large_doc_handler import LargeDocumentHandler
-from core.analyzer import StructureAnalyzer
 from config.config import (
     LARGE_DOC_PAGE_THRESHOLD,
     LARGE_DOC_SIZE_MB_THRESHOLD,
     USE_VLM_FOR_LARGE_DOCS,
     VLM_MODEL,
 )
+from core.analyzer import StructureAnalyzer
+from core.large_doc_handler import LargeDocumentHandler
 
 logger = logging.getLogger(__name__)
 

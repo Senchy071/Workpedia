@@ -2,8 +2,8 @@
 
 import logging
 import re
-from typing import Dict, Any, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 

@@ -2,22 +2,23 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Union
-import numpy as np
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import chromadb
+import numpy as np
 from chromadb.config import Settings
 
-from config.config import CHROMA_PERSIST_DIR, CHROMA_COLLECTION_NAME, EMBEDDING_DIM
+from config.config import CHROMA_COLLECTION_NAME, CHROMA_PERSIST_DIR
 from core.chunker import Chunk
 from core.exceptions import (
-    VectorStoreError,
-    VectorStoreConnectionError,
-    DocumentNotIndexedError,
     IndexingError,
+    VectorStoreConnectionError,
     VectorStoreQueryError,
-    InvalidDocumentIdError,
 )
+
+if TYPE_CHECKING:
+    from core.chunker import SemanticChunker
+    from core.embedder import Embedder
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,7 @@ class VectorStore:
             Path(persist_directory).mkdir(parents=True, exist_ok=True)
         except Exception as e:
             raise VectorStoreConnectionError(
-                store_path=persist_directory,
-                reason=f"Failed to create persist directory: {e}"
+                store_path=persist_directory, reason=f"Failed to create persist directory: {e}"
             ) from e
 
         # Initialize ChromaDB client with persistence
@@ -76,8 +76,7 @@ class VectorStore:
             )
         except Exception as e:
             raise VectorStoreConnectionError(
-                store_path=persist_directory,
-                reason=f"Failed to initialize ChromaDB: {e}"
+                store_path=persist_directory, reason=f"Failed to initialize ChromaDB: {e}"
             ) from e
 
     @property
@@ -106,9 +105,13 @@ class VectorStore:
             IndexingError: If adding chunks fails
         """
         if len(chunks) != len(embeddings):
+            reason = (
+                f"Chunks ({len(chunks)}) and embeddings ({len(embeddings)}) "
+                "must have same length"
+            )
             raise IndexingError(
                 doc_id=chunks[0].doc_id if chunks else "unknown",
-                reason=f"Chunks ({len(chunks)}) and embeddings ({len(embeddings)}) must have same length"
+                reason=reason,
             )
 
         if not chunks:
@@ -155,7 +158,7 @@ class VectorStore:
         except Exception as e:
             raise IndexingError(
                 doc_id=chunks[0].doc_id if chunks else "unknown",
-                reason=f"Failed to add chunks to ChromaDB: {e}"
+                reason=f"Failed to add chunks to ChromaDB: {e}",
             ) from e
 
     def query(
@@ -200,8 +203,7 @@ class VectorStore:
             }
         except Exception as e:
             raise VectorStoreQueryError(
-                reason=f"ChromaDB query failed: {e}",
-                query_length=len(query_embedding)
+                reason=f"ChromaDB query failed: {e}", query_length=len(query_embedding)
             ) from e
 
     def query_text(
@@ -246,9 +248,7 @@ class VectorStore:
             )
             return results
         except Exception as e:
-            raise VectorStoreQueryError(
-                reason=f"Failed to get document by ID: {e}"
-            ) from e
+            raise VectorStoreQueryError(reason=f"Failed to get document by ID: {e}") from e
 
     def delete_by_doc_id(self, doc_id: str) -> int:
         """
@@ -372,9 +372,11 @@ class DocumentIndexer:
             vector_store = VectorStore()
         if embedder is None:
             from core.embedder import Embedder
+
             embedder = Embedder()
         if chunker is None:
             from core.chunker import SemanticChunker
+
             chunker = SemanticChunker()
 
         self.vector_store = vector_store
@@ -508,7 +510,9 @@ class DocumentIndexer:
                         toc_content = "\n".join(toc_lines)
                         sections_count = len(sections)
                         extraction_method = "structure_analyzer"
-                        logger.info(f"TOC extracted via StructureAnalyzer: {sections_count} sections")
+                        logger.info(
+                            f"TOC extracted via StructureAnalyzer: {sections_count} sections"
+                        )
 
         except Exception as e:
             logger.debug(f"StructureAnalyzer failed: {e}")
@@ -563,8 +567,8 @@ class DocumentIndexer:
 
         # Common TOC header patterns (including markdown headings)
         toc_markers = [
-            r'(?:^|\n)\s*#{1,3}\s*(?:TABLE\s+OF\s+CONTENTS|CONTENTS|Table\s+of\s+Contents)\s*\n',
-            r'(?:^|\n)\s*(?:TABLE\s+OF\s+CONTENTS|CONTENTS|Table\s+of\s+Contents|Contents)\s*\n',
+            r"(?:^|\n)\s*#{1,3}\s*(?:TABLE\s+OF\s+CONTENTS|CONTENTS|Table\s+of\s+Contents)\s*\n",
+            r"(?:^|\n)\s*(?:TABLE\s+OF\s+CONTENTS|CONTENTS|Table\s+of\s+Contents|Contents)\s*\n",
         ]
 
         toc_start = None
@@ -578,58 +582,64 @@ class DocumentIndexer:
             return None, 0
 
         # Extract TOC section (typically ends at a major section or after many lines)
-        toc_section = raw_text[toc_start:toc_start + 30000]  # Max 30k chars for TOC
+        toc_section = raw_text[toc_start : toc_start + 30000]  # Max 30k chars for TOC
 
         # Parse TOC entries - look for lines with page numbers or chapter patterns
         toc_entries = []
-        lines = toc_section.split('\n')
+        lines = toc_section.split("\n")
 
         # Patterns for TOC entries (handle both plain text and markdown table formats)
         entry_patterns = [
             # Markdown table: "| TITLE  .  .  .  . 15 |" (dots with spaces between)
-            re.compile(r'^\|\s*([A-Za-z][A-Za-z\s\-/,\(\)\']+?)(?:\s+\.)+\s*(\d+)\s*\|', re.IGNORECASE),
+            re.compile(
+                r"^\|\s*([A-Za-z][A-Za-z\s\-/,\(\)\']+?)(?:\s+\.)+\s*(\d+)\s*\|", re.IGNORECASE
+            ),
             # Markdown table: "| Title . . . . . . .15 |"
-            re.compile(r'^\|\s*([A-Za-z][^|]+?)\s*[\.]+\s*(\d+)\s*\|'),
+            re.compile(r"^\|\s*([A-Za-z][^|]+?)\s*[\.]+\s*(\d+)\s*\|"),
             # "Chapter 1 Title ... 15" or "1. Introduction ... 5"
-            re.compile(r'^[\|\s]*(?:Chapter\s+)?(\d+[\.\d]*\.?\s+.+?)\s*[\.…\s]+(\d+)\s*\|?\s*$', re.IGNORECASE),
+            re.compile(
+                r"^[\|\s]*(?:Chapter\s+)?(\d+[\.\d]*\.?\s+.+?)\s*[\.…\s]+(\d+)\s*\|?\s*$",
+                re.IGNORECASE,
+            ),
             # Markdown table format: "| TITLE . . . . 15 |" or "| TITLE ... 15 |"
-            re.compile(r'^\|?\s*(?:CHAPTER\s+\d+\s+)?([A-Z][A-Z\s\-/,]+?)[\s\.]+(\d+)\s*\|?\s*$'),
+            re.compile(r"^\|?\s*(?:CHAPTER\s+\d+\s+)?([A-Z][A-Z\s\-/,]+?)[\s\.]+(\d+)\s*\|?\s*$"),
             # Title with dots and page number (handles markdown table cell)
-            re.compile(r'^\|?\s*([A-Za-z][A-Za-z\s\-/,\(\)]+?)\s*[\.\s]{2,}(\d+)\s*\|?\s*$'),
+            re.compile(r"^\|?\s*([A-Za-z][A-Za-z\s\-/,\(\)]+?)\s*[\.\s]{2,}(\d+)\s*\|?\s*$"),
             # "INTRODUCTION ... 1" (all caps heading)
-            re.compile(r'^\|?\s*([A-Z][A-Z\s\-/]+(?:[A-Z]|\d))\s*[\.…\s]+(\d+)\s*\|?\s*$'),
+            re.compile(r"^\|?\s*([A-Z][A-Z\s\-/]+(?:[A-Z]|\d))\s*[\.…\s]+(\d+)\s*\|?\s*$"),
             # "Appendix A: Title ... 150"
-            re.compile(r'^\|?\s*((?:Appendix|Annex|Part|Chapter)\s+[A-Z\d]+[:\.\s].+?)\s*[\.…\s]+(\d+)\s*\|?\s*$', re.IGNORECASE),
+            re.compile(
+                r"^\|?\s*((?:Appendix|Annex|Part|Chapter)\s+[A-Z\d]+[:\.\s].+?)\s*[\.…\s]+(\d+)\s*\|?\s*$",
+                re.IGNORECASE,
+            ),
             # Generic: "Title text ... 15" with dots/spaces before page number
-            re.compile(r'^\|?\s*([A-Z][^|]{5,80}?)\s*[\.…\s]{3,}(\d+)\s*\|?\s*$'),
+            re.compile(r"^\|?\s*([A-Z][^|]{5,80}?)\s*[\.…\s]{3,}(\d+)\s*\|?\s*$"),
         ]
 
         # Also detect chapter headers like "CHAPTER 1 THE ALLIANCE'S..."
         chapter_header_pattern = re.compile(
-            r'^\|?\s*(CHAPTER\s+\d+\s+[A-Z][A-Z\s\-/,]+)',
-            re.IGNORECASE
+            r"^\|?\s*(CHAPTER\s+\d+\s+[A-Z][A-Z\s\-/,]+)", re.IGNORECASE
         )
 
         consecutive_non_toc = 0
         seen_entries = set()  # Avoid duplicates
 
         for line in lines:
-            original_line = line
             line = line.strip()
 
             # Skip empty lines and table separators
-            if not line or line.startswith('|--') or line.startswith('|-'):
+            if not line or line.startswith("|--") or line.startswith("|-"):
                 continue
 
             # Skip lines that are just table formatting
-            if re.match(r'^[\|\s\-:]+$', line):
+            if re.match(r"^[\|\s\-:]+$", line):
                 continue
 
             # Check for chapter header first
             chapter_match = chapter_header_pattern.match(line)
             if chapter_match:
                 title = chapter_match.group(1).strip()
-                title = re.sub(r'[\.\s|]+$', '', title)
+                title = re.sub(r"[\.\s|]+$", "", title)
                 if title and title not in seen_entries and len(title) > 5:
                     seen_entries.add(title)
                     toc_entries.append(f"- {title}")
@@ -645,13 +655,13 @@ class DocumentIndexer:
                     page = match.group(2).strip()
 
                     # Clean up title (remove excessive dots/spaces/pipes)
-                    title = re.sub(r'[\.\s\|]+$', '', title)
-                    title = re.sub(r'\s+', ' ', title)
+                    title = re.sub(r"[\.\s\|]+$", "", title)
+                    title = re.sub(r"\s+", " ", title)
 
                     # Filter out garbage entries
                     if len(title) > 3 and len(title) < 100 and title not in seen_entries:
                         # Skip entries that look like just numbers or symbols
-                        if re.search(r'[a-zA-Z]{2,}', title):
+                        if re.search(r"[a-zA-Z]{2,}", title):
                             seen_entries.add(title)
                             toc_entries.append(f"- {title} (page {page})")
                             matched = True
@@ -707,18 +717,22 @@ class DocumentIndexer:
 
         # Format results
         formatted = []
-        for i, (doc_id, content, metadata, distance) in enumerate(zip(
-            results["ids"],
-            results["documents"],
-            results["metadatas"],
-            results["distances"],
-        )):
-            formatted.append({
-                "rank": i + 1,
-                "chunk_id": doc_id,
-                "content": content,
-                "metadata": metadata,
-                "similarity": 1 - distance,  # Convert distance to similarity
-            })
+        for i, (doc_id, content, metadata, distance) in enumerate(
+            zip(
+                results["ids"],
+                results["documents"],
+                results["metadatas"],
+                results["distances"],
+            )
+        ):
+            formatted.append(
+                {
+                    "rank": i + 1,
+                    "chunk_id": doc_id,
+                    "content": content,
+                    "metadata": metadata,
+                    "similarity": 1 - distance,  # Convert distance to similarity
+                }
+            )
 
         return formatted

@@ -1,22 +1,22 @@
 """Core RAG components for Workpedia."""
 
-from core.parser import DocumentParser
-from core.large_doc_handler import LargeDocumentHandler
 from core.analyzer import (
-    StructureAnalyzer,
-    DocumentStructure,
-    DocumentElement,
-    TableInfo,
     CrossReference,
+    DocumentElement,
+    DocumentStructure,
+    StructureAnalyzer,
+    TableInfo,
 )
-from core.validator import DocumentValidator, ValidationReport, ValidationIssue
-from core.progress_tracker import ProgressTracker, ProcessingStage
-from core.pdf_splitter import PDFSplitter, SplitResult
-from core.doc_merger import DocumentMerger, ChunkInfo, MergeResult, create_chunk_info
-from core.chunker import SemanticChunker, Chunk, chunk_document
+from core.chunker import Chunk, SemanticChunker, chunk_document
+from core.doc_merger import ChunkInfo, DocumentMerger, MergeResult, create_chunk_info
 from core.embedder import Embedder, embed_text
-from core.llm import OllamaClient, RAG_SYSTEM_PROMPT, format_rag_prompt
+from core.large_doc_handler import LargeDocumentHandler
+from core.llm import RAG_SYSTEM_PROMPT, OllamaClient, format_rag_prompt
+from core.parser import DocumentParser
+from core.pdf_splitter import PDFSplitter, SplitResult
+from core.progress_tracker import ProcessingStage, ProgressTracker
 from core.query_engine import QueryEngine, QueryResult, ask
+from core.validator import DocumentValidator, ValidationIssue, ValidationReport
 
 __all__ = [
     # Parser

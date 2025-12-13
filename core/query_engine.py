@@ -2,13 +2,13 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional, Generator
+from typing import Any, Dict, Generator, List, Optional
 
-from core.llm import OllamaClient, RAG_SYSTEM_PROMPT, format_rag_prompt
 from core.embedder import Embedder
+from core.exceptions import InvalidParameterError, InvalidQueryError
+from core.llm import RAG_SYSTEM_PROMPT, OllamaClient, format_rag_prompt
+from core.validators import validate_document_id, validate_query, validate_query_params
 from storage.vector_store import VectorStore
-from core.validators import validate_query, validate_query_params, validate_document_id
-from core.exceptions import InvalidQueryError, InvalidParameterError
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ class QueryResult:
         sources: List of source chunks used
         metadata: Additional query metadata
     """
+
     question: str
     answer: str
     sources: List[Dict[str, Any]] = field(default_factory=list)
@@ -81,8 +82,7 @@ class QueryEngine:
         self.temperature = temperature
 
         logger.info(
-            f"QueryEngine initialized: n_results={n_results}, "
-            f"temperature={temperature}"
+            f"QueryEngine initialized: n_results={n_results}, " f"temperature={temperature}"
         )
 
     def query(
@@ -134,9 +134,9 @@ class QueryEngine:
                 raise InvalidParameterError(f"Invalid doc_id: {e}") from e
 
         # Use validated or default values
-        n_results = params.get('n_results', n_results or self.n_results)
-        temperature = params.get('temperature', temperature or self.temperature)
-        max_tokens = params.get('max_tokens', max_tokens)
+        n_results = params.get("n_results", n_results or self.n_results)
+        temperature = params.get("temperature", temperature or self.temperature)
+        max_tokens = params.get("max_tokens", max_tokens)
 
         logger.info(f"Query: '{question[:50]}...' (n_results={n_results})")
 
@@ -145,9 +145,13 @@ class QueryEngine:
 
         if not chunks:
             logger.warning("No relevant chunks found")
+            no_info_msg = (
+                "I couldn't find any relevant information in the "
+                "documents to answer your question."
+            )
             return QueryResult(
                 question=question,
-                answer="I couldn't find any relevant information in the documents to answer your question.",
+                answer=no_info_msg,
                 sources=[],
                 metadata={"chunks_retrieved": 0},
             )
@@ -230,18 +234,22 @@ class QueryEngine:
                 raise InvalidParameterError(f"Invalid doc_id: {e}") from e
 
         # Use validated or default values
-        n_results = params.get('n_results', n_results or self.n_results)
-        temperature = params.get('temperature', temperature or self.temperature)
-        max_tokens = params.get('max_tokens', max_tokens)
+        n_results = params.get("n_results", n_results or self.n_results)
+        temperature = params.get("temperature", temperature or self.temperature)
+        max_tokens = params.get("max_tokens", max_tokens)
 
         # Retrieve chunks
         chunks = self._retrieve(question, n_results, doc_id)
 
         if not chunks:
-            yield "I couldn't find any relevant information in the documents to answer your question."
+            no_info_msg = (
+                "I couldn't find any relevant information in the "
+                "documents to answer your question."
+            )
+            yield no_info_msg
             return QueryResult(
                 question=question,
-                answer="I couldn't find any relevant information in the documents to answer your question.",
+                answer=no_info_msg,
                 sources=[],
                 metadata={"chunks_retrieved": 0},
             )
@@ -303,12 +311,14 @@ class QueryEngine:
         # Format results
         chunks = []
         for i in range(len(results["ids"])):
-            chunks.append({
-                "chunk_id": results["ids"][i],
-                "content": results["documents"][i],
-                "metadata": results["metadatas"][i],
-                "similarity": 1 - results["distances"][i],  # Convert distance to similarity
-            })
+            chunks.append(
+                {
+                    "chunk_id": results["ids"][i],
+                    "content": results["documents"][i],
+                    "metadata": results["metadatas"][i],
+                    "similarity": 1 - results["distances"][i],  # Convert distance to similarity
+                }
+            )
 
         return chunks
 
@@ -375,7 +385,7 @@ class QueryEngine:
                 raise InvalidParameterError(f"Invalid doc_id: {e}") from e
 
         # Use validated values
-        n_results = params.get('n_results', n_results)
+        n_results = params.get("n_results", n_results)
 
         return self._retrieve(question, n_results, doc_id)
 

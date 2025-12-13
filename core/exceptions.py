@@ -323,7 +323,7 @@ class NoResultsError(QueryError):
 
     def __init__(self, query: str):
         super().__init__(
-            f"No results found for query",
+            "No results found for query",
             context={"query": query[:100]}
         )
 

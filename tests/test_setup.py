@@ -3,11 +3,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+
 def test_imports():
     """Test that all required packages can be imported."""
     try:
-        import docling
         import chromadb
+        import docling
         import sentence_transformers
         import torch
         print("✓ All core packages imported successfully")
@@ -57,10 +58,7 @@ def test_config():
     """Test configuration file."""
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from config.config import (
-            OLLAMA_MODEL, EMBEDDING_MODEL,
-            CHROMA_COLLECTION_NAME
-        )
+        from config.config import CHROMA_COLLECTION_NAME, EMBEDDING_MODEL, OLLAMA_MODEL
         print("✓ Configuration file loaded successfully")
         print(f"  - Ollama model: {OLLAMA_MODEL}")
         print(f"  - Embedding model: {EMBEDDING_MODEL}")

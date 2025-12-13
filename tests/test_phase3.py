@@ -1,15 +1,14 @@
 """Tests for Phase 3: Chunking and Embedding."""
 
-import pytest
-import tempfile
 import shutil
-from pathlib import Path
+import tempfile
+
 import numpy as np
+import pytest
 
-from core.chunker import SemanticChunker, Chunk, chunk_document
+from core.chunker import Chunk, SemanticChunker, chunk_document
 from core.embedder import Embedder
-from storage.vector_store import VectorStore, DocumentIndexer
-
+from storage.vector_store import DocumentIndexer, VectorStore
 
 # =============================================================================
 # Test Fixtures

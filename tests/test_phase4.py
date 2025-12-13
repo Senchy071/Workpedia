@@ -1,19 +1,19 @@
 """Tests for Phase 4: Query Interface."""
 
-import pytest
-import tempfile
 import shutil
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+import tempfile
+from unittest.mock import Mock, patch
+
 import numpy as np
+import pytest
 
-from core.llm import OllamaClient, RAG_SYSTEM_PROMPT, format_rag_prompt
+from core.llm import RAG_SYSTEM_PROMPT, OllamaClient, format_rag_prompt
 from core.query_engine import QueryEngine, QueryResult
-
 
 # =============================================================================
 # Test Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def sample_chunks():
@@ -58,6 +58,7 @@ def mock_ollama_response():
 # OllamaClient Tests
 # =============================================================================
 
+
 class TestOllamaClient:
     """Tests for OllamaClient class."""
 
@@ -79,22 +80,23 @@ class TestOllamaClient:
         assert client.base_url == "http://custom:8080"
         assert client.timeout == 60
 
-    @patch('requests.get')
+    @patch("requests.get")
     def test_is_available_true(self, mock_get):
         """Test is_available when server responds."""
         mock_get.return_value.status_code = 200
         client = OllamaClient()
         assert client.is_available() is True
 
-    @patch('core.llm.requests.get')
+    @patch("core.llm.requests.get")
     def test_is_available_false(self, mock_get):
         """Test is_available when server doesn't respond."""
         import requests
+
         mock_get.side_effect = requests.RequestException("Connection refused")
         client = OllamaClient()
         assert client.is_available() is False
 
-    @patch('requests.get')
+    @patch("requests.get")
     def test_list_models(self, mock_get):
         """Test listing available models."""
         mock_get.return_value.status_code = 200
@@ -109,7 +111,7 @@ class TestOllamaClient:
         assert "mistral" in models
         assert "llama2" in models
 
-    @patch('requests.post')
+    @patch("requests.post")
     def test_generate_sync(self, mock_post, mock_ollama_response):
         """Test synchronous generation."""
         mock_post.return_value.status_code = 200
@@ -121,7 +123,7 @@ class TestOllamaClient:
         assert "Python" in response
         mock_post.assert_called_once()
 
-    @patch('requests.post')
+    @patch("requests.post")
     def test_generate_with_system_prompt(self, mock_post, mock_ollama_response):
         """Test generation with system prompt."""
         mock_post.return_value.status_code = 200
@@ -138,7 +140,7 @@ class TestOllamaClient:
         payload = call_args[1]["json"]
         assert payload["system"] == "You are a programming expert."
 
-    @patch('requests.post')
+    @patch("requests.post")
     def test_chat_sync(self, mock_post):
         """Test synchronous chat completion."""
         mock_post.return_value.status_code = 200
@@ -148,9 +150,7 @@ class TestOllamaClient:
         }
 
         client = OllamaClient()
-        messages = [
-            {"role": "user", "content": "Tell me about Python."}
-        ]
+        messages = [{"role": "user", "content": "Tell me about Python."}]
         response = client.chat(messages, stream=False)
 
         assert "Python" in response
@@ -159,6 +159,7 @@ class TestOllamaClient:
 # =============================================================================
 # RAG Prompt Tests
 # =============================================================================
+
 
 class TestRAGPrompts:
     """Tests for RAG prompt formatting."""
@@ -217,6 +218,7 @@ class TestRAGPrompts:
 # QueryResult Tests
 # =============================================================================
 
+
 class TestQueryResult:
     """Tests for QueryResult dataclass."""
 
@@ -263,6 +265,7 @@ class TestQueryResult:
 # QueryEngine Tests
 # =============================================================================
 
+
 class TestQueryEngine:
     """Tests for QueryEngine class."""
 
@@ -279,7 +282,9 @@ class TestQueryEngine:
             ],
             "distances": [0.1, 0.2],
         }
-        mock.list_documents.return_value = [{"doc_id": "doc1", "filename": "doc1.pdf", "chunk_count": 2}]
+        mock.list_documents.return_value = [
+            {"doc_id": "doc1", "filename": "doc1.pdf", "chunk_count": 2}
+        ]
         mock.count = 2
         return mock
 
@@ -401,6 +406,7 @@ class TestQueryEngine:
 # API Tests
 # =============================================================================
 
+
 class TestAPIEndpoints:
     """Tests for FastAPI endpoints."""
 
@@ -408,8 +414,9 @@ class TestAPIEndpoints:
     def client(self, mock_vector_store, mock_embedder, mock_llm):
         """Create test client with mocked dependencies."""
         from fastapi.testclient import TestClient
-        from api.endpoints import app, query_engine, document_indexer
+
         import api.endpoints as endpoints
+        from api.endpoints import app
 
         # Inject mocks
         endpoints.query_engine = QueryEngine(
@@ -431,7 +438,12 @@ class TestAPIEndpoints:
             "distances": [0.1],
         }
         mock.list_documents.return_value = [
-            {"doc_id": "doc1", "filename": "test.pdf", "file_path": "/tmp/test.pdf", "chunk_count": 1}
+            {
+                "doc_id": "doc1",
+                "filename": "test.pdf",
+                "file_path": "/tmp/test.pdf",
+                "chunk_count": 1,
+            }
         ]
         mock.count = 1
         mock.stats.return_value = {
@@ -513,6 +525,7 @@ class TestAPIEndpoints:
 # Integration Tests
 # =============================================================================
 
+
 class TestPhase4Integration:
     """Integration tests for the complete Phase 4 pipeline."""
 
@@ -569,6 +582,7 @@ class TestPhase4Integration:
 
         # Should be JSON serializable
         import json
+
         json_str = json.dumps(data)
         assert len(json_str) > 0
 
@@ -577,8 +591,8 @@ class TestPhase4Integration:
         assert parsed["question"] == "Test question?"
         assert parsed["answer"] == "Test answer."
 
-    @patch('requests.get')
-    @patch('requests.post')
+    @patch("requests.get")
+    @patch("requests.post")
     def test_ollama_client_integration(self, mock_post, mock_get):
         """Test OllamaClient with mocked HTTP."""
         # Setup mocks

@@ -1,10 +1,14 @@
 """Embedder using sentence-transformers for semantic vector generation."""
 
 import logging
-from typing import List, Union, Optional
+from typing import TYPE_CHECKING, List, Optional, Union
+
 import numpy as np
 
-from config.config import EMBEDDING_MODEL, EMBEDDING_DIM
+from config.config import EMBEDDING_DIM, EMBEDDING_MODEL
+
+if TYPE_CHECKING:
+    from core.chunker import Chunk
 
 logger = logging.getLogger(__name__)
 

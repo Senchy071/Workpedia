@@ -9,14 +9,14 @@ This module provides production-ready resilience patterns:
 These patterns ensure the system remains responsive even when Ollama is slow or unavailable.
 """
 
-import time
-import logging
 import functools
-from typing import Callable, Any, Optional, Type, Tuple
-from enum import Enum
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+import logging
 import threading
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any, Callable, Optional, Tuple, Type
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +303,7 @@ class CircuitBreaker:
 
                 return result
 
-            except Exception as e:
+            except Exception:
                 # Failure - update state
                 with self._lock:
                     self._on_failure()

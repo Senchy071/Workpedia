@@ -1,49 +1,43 @@
 """FastAPI endpoints for Workpedia RAG system."""
 
 import logging
-import uuid
 import time
-from pathlib import Path
-from typing import Optional, List
+import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query, BackgroundTasks, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from core.query_engine import QueryEngine, QueryResult
-from core.parser import DocumentParser
-from core.llm import OllamaClient
-from storage.vector_store import VectorStore, DocumentIndexer
-from config.config import INPUT_DIR, OUTPUT_DIR
+from config.config import INPUT_DIR
 from core.exceptions import (
-    WorkpediaError,
-    DocumentProcessingError,
     DocumentNotFoundError,
     DocumentParsingError,
-    UnsupportedFormatError,
+    IndexingError,
     OllamaConnectionError,
     OllamaGenerationError,
     OllamaTimeoutError,
-    VectorStoreError,
-    VectorStoreQueryError,
-    IndexingError,
+    UnsupportedFormatError,
     ValidationError,
-    InvalidQueryError,
-    InvalidParameterError,
-    QueryError,
+    VectorStoreQueryError,
+    WorkpediaError,
     format_exception_chain,
 )
-from core.logging_config import set_request_id, log_performance
-from core.validators import (
-    validate_query,
-    validate_query_params,
-    validate_file_path,
-    validate_document_id,
-    sanitize_filename,
-)
+from core.llm import OllamaClient
+from core.logging_config import set_request_id
+from core.parser import DocumentParser
+from core.query_engine import QueryEngine
 from core.resilience import CircuitBreakerError
+from core.validators import (
+    sanitize_filename,
+    validate_document_id,
+    validate_file_path,
+    validate_query,
+)
+from storage.vector_store import DocumentIndexer
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +71,14 @@ async def lifespan(app: FastAPI):
             raise RuntimeError(error_msg)
 
         if not health["model_available"]:
+            available = health["available_models"]
+            models_str = ", ".join(available) if available else "none"
             error_msg = (
                 f"STARTUP FAILED: {health['message']}\n"
                 f"To fix this:\n"
                 f"  1. Pull the model: 'ollama pull {health['model_name']}'\n"
                 f"  2. Or use a different model in config/config.py\n"
-                f"  Available models: {', '.join(health['available_models']) if health['available_models'] else 'none'}"
+                f"  Available models: {models_str}"
             )
             logger.error(error_msg)
             raise RuntimeError(error_msg)
@@ -124,6 +120,7 @@ app = FastAPI(
 # Middleware - Request ID tracking and performance logging
 # =============================================================================
 
+
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """Middleware to add request ID and log request/response."""
 
@@ -140,7 +137,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         start_time = time.time()
         logger.info(
             f"Request started: {request.method} {request.url.path}",
-            extra={'request_id': request_id, 'method': request.method, 'path': request.url.path}
+            extra={"request_id": request_id, "method": request.method, "path": request.url.path},
         )
 
         # Process request
@@ -152,12 +149,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             logger.info(
                 f"Request completed: {request.method} {request.url.path} - {response.status_code}",
                 extra={
-                    'request_id': request_id,
-                    'method': request.method,
-                    'path': request.url.path,
-                    'status_code': response.status_code,
-                    'elapsed_time': elapsed,
-                }
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status_code": response.status_code,
+                    "elapsed_time": elapsed,
+                },
             )
 
             # Add request ID to response headers
@@ -170,13 +167,13 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             logger.error(
                 f"Request failed: {request.method} {request.url.path} - {e}",
                 extra={
-                    'request_id': request_id,
-                    'method': request.method,
-                    'path': request.url.path,
-                    'elapsed_time': elapsed,
-                    'error': str(e),
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "elapsed_time": elapsed,
+                    "error": str(e),
                 },
-                exc_info=True
+                exc_info=True,
             )
             raise
 
@@ -189,6 +186,7 @@ app.add_middleware(RequestLoggingMiddleware)
 # Exception Handlers - Map custom exceptions to HTTP status codes
 # =============================================================================
 
+
 @app.exception_handler(DocumentNotFoundError)
 async def document_not_found_handler(request: Request, exc: DocumentNotFoundError):
     """Handle document not found errors - 404."""
@@ -199,7 +197,7 @@ async def document_not_found_handler(request: Request, exc: DocumentNotFoundErro
             "error": "DocumentNotFoundError",
             "message": exc.message,
             "context": exc.context,
-        }
+        },
     )
 
 
@@ -213,7 +211,7 @@ async def unsupported_format_handler(request: Request, exc: UnsupportedFormatErr
             "error": "UnsupportedFormatError",
             "message": exc.message,
             "context": exc.context,
-        }
+        },
     )
 
 
@@ -227,7 +225,7 @@ async def document_parsing_handler(request: Request, exc: DocumentParsingError):
             "error": "DocumentParsingError",
             "message": exc.message,
             "context": exc.context,
-        }
+        },
     )
 
 
@@ -241,8 +239,8 @@ async def ollama_connection_handler(request: Request, exc: OllamaConnectionError
             "error": "OllamaConnectionError",
             "message": exc.message,
             "context": exc.context,
-            "suggestion": "Check if Ollama server is running: ollama serve"
-        }
+            "suggestion": "Check if Ollama server is running: ollama serve",
+        },
     )
 
 
@@ -256,8 +254,8 @@ async def ollama_timeout_handler(request: Request, exc: OllamaTimeoutError):
             "error": "OllamaTimeoutError",
             "message": exc.message,
             "context": exc.context,
-            "suggestion": "The request took too long. Try a simpler query or increase timeout."
-        }
+            "suggestion": "The request took too long. Try a simpler query or increase timeout.",
+        },
     )
 
 
@@ -271,7 +269,7 @@ async def ollama_generation_handler(request: Request, exc: OllamaGenerationError
             "error": "OllamaGenerationError",
             "message": exc.message,
             "context": exc.context,
-        }
+        },
     )
 
 
@@ -285,7 +283,7 @@ async def vector_store_query_handler(request: Request, exc: VectorStoreQueryErro
             "error": "VectorStoreQueryError",
             "message": exc.message,
             "context": exc.context,
-        }
+        },
     )
 
 
@@ -299,7 +297,7 @@ async def indexing_error_handler(request: Request, exc: IndexingError):
             "error": "IndexingError",
             "message": exc.message,
             "context": exc.context,
-        }
+        },
     )
 
 
@@ -313,7 +311,7 @@ async def validation_error_handler(request: Request, exc: ValidationError):
             "error": "ValidationError",
             "message": exc.message,
             "context": exc.context,
-        }
+        },
     )
 
 
@@ -332,7 +330,7 @@ async def circuit_breaker_handler(request: Request, exc: CircuitBreakerError):
                 "Please try again in a few moments."
             ),
             "retry_after": 60,  # seconds
-        }
+        },
     )
 
 
@@ -346,7 +344,7 @@ async def workpedia_error_handler(request: Request, exc: WorkpediaError):
             "error": exc.__class__.__name__,
             "message": exc.message,
             "context": exc.context,
-        }
+        },
     )
 
 
@@ -354,15 +352,19 @@ async def workpedia_error_handler(request: Request, exc: WorkpediaError):
 # Pydantic Models
 # =============================================================================
 
+
 class QueryRequest(BaseModel):
     """Request model for queries."""
-    question: str = Field(..., description="Question to ask about documents", min_length=1, max_length=5000)
+
+    question: str = Field(
+        ..., description="Question to ask about documents", min_length=1, max_length=5000
+    )
     n_results: int = Field(5, ge=1, le=50, description="Number of chunks to retrieve")
     doc_id: Optional[str] = Field(None, description="Filter to specific document")
     temperature: float = Field(0.7, ge=0, le=2.0, description="LLM temperature")
     max_tokens: Optional[int] = Field(None, ge=1, le=4096, description="Maximum response tokens")
 
-    @field_validator('question')
+    @field_validator("question")
     @classmethod
     def validate_question(cls, v):
         """Validate and sanitize query string."""
@@ -371,7 +373,7 @@ class QueryRequest(BaseModel):
         except ValueError as e:
             raise ValueError(f"Invalid question: {e}")
 
-    @field_validator('doc_id')
+    @field_validator("doc_id")
     @classmethod
     def validate_doc_id(cls, v):
         """Validate document ID format."""
@@ -385,6 +387,7 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     """Response model for queries."""
+
     question: str
     answer: str
     sources: List[dict]
@@ -393,6 +396,7 @@ class QueryResponse(BaseModel):
 
 class DocumentInfo(BaseModel):
     """Document information model."""
+
     doc_id: str
     filename: str
     file_path: str
@@ -401,10 +405,11 @@ class DocumentInfo(BaseModel):
 
 class IndexRequest(BaseModel):
     """Request model for indexing."""
+
     file_path: str = Field(..., description="Path to document to index")
     replace_existing: bool = Field(True, description="Replace if already indexed")
 
-    @field_validator('file_path')
+    @field_validator("file_path")
     @classmethod
     def validate_file_path_field(cls, v):
         """Validate file path for security."""
@@ -413,7 +418,7 @@ class IndexRequest(BaseModel):
             validated_path = validate_file_path(
                 v,
                 must_exist=True,
-                allowed_extensions={'.pdf', '.docx', '.html', '.htm', '.txt', '.md'}
+                allowed_extensions={".pdf", ".docx", ".html", ".htm", ".txt", ".md"},
             )
             # Convert back to string for consistency
             return str(validated_path)
@@ -423,6 +428,7 @@ class IndexRequest(BaseModel):
 
 class IndexResponse(BaseModel):
     """Response model for indexing."""
+
     doc_id: str
     filename: str
     chunks_added: int
@@ -432,6 +438,7 @@ class IndexResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response."""
+
     status: str
     vector_store: dict
     llm: dict
@@ -440,11 +447,12 @@ class HealthResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     """Request model for semantic search."""
+
     query: str = Field(..., description="Search query", min_length=1, max_length=5000)
     n_results: int = Field(5, ge=1, le=50, description="Number of results")
     doc_id: Optional[str] = Field(None, description="Filter to specific document")
 
-    @field_validator('query')
+    @field_validator("query")
     @classmethod
     def validate_query_field(cls, v):
         """Validate and sanitize search query."""
@@ -453,7 +461,7 @@ class SearchRequest(BaseModel):
         except ValueError as e:
             raise ValueError(f"Invalid query: {e}")
 
-    @field_validator('doc_id')
+    @field_validator("doc_id")
     @classmethod
     def validate_doc_id(cls, v):
         """Validate document ID format."""
@@ -467,6 +475,7 @@ class SearchRequest(BaseModel):
 
 class SearchResult(BaseModel):
     """Single search result."""
+
     chunk_id: str
     content: str
     metadata: dict
@@ -476,6 +485,7 @@ class SearchResult(BaseModel):
 # =============================================================================
 # Query Endpoints
 # =============================================================================
+
 
 @app.post("/query", response_model=QueryResponse, tags=["Query"])
 async def query_documents(request: QueryRequest):
@@ -562,6 +572,7 @@ async def search_documents(request: SearchRequest):
 # Document Management Endpoints
 # =============================================================================
 
+
 @app.post("/documents/index", response_model=IndexResponse, tags=["Documents"])
 async def index_document(request: IndexRequest):
     """
@@ -635,7 +646,7 @@ async def upload_and_index(
         if file_size_mb > max_size_mb:
             raise HTTPException(
                 status_code=413,
-                detail=f"File too large: {file_size_mb:.2f}MB (max {max_size_mb}MB)"
+                detail=f"File too large: {file_size_mb:.2f}MB (max {max_size_mb}MB)",
             )
 
         # Validate file is not empty
@@ -737,6 +748,7 @@ async def delete_document(doc_id: str):
 # System Endpoints
 # =============================================================================
 
+
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 async def health_check():
     """Check system health and component status."""
@@ -790,15 +802,24 @@ async def get_resilience_stats():
         circuit_breaker_stats = query_engine.llm.get_circuit_breaker_stats()
 
         return {
-            "circuit_breaker": circuit_breaker_stats if circuit_breaker_stats else {
-                "enabled": False,
-                "message": "Circuit breaker is disabled"
-            },
+            "circuit_breaker": (
+                circuit_breaker_stats
+                if circuit_breaker_stats
+                else {"enabled": False, "message": "Circuit breaker is disabled"}
+            ),
             "retry": {
                 "enabled": query_engine.llm.enable_retry,
-                "max_attempts": query_engine.llm.retry_config.max_retries if query_engine.llm.enable_retry else None,
-                "initial_delay": query_engine.llm.retry_config.initial_delay if query_engine.llm.enable_retry else None,
-            }
+                "max_attempts": (
+                    query_engine.llm.retry_config.max_retries
+                    if query_engine.llm.enable_retry
+                    else None
+                ),
+                "initial_delay": (
+                    query_engine.llm.retry_config.initial_delay
+                    if query_engine.llm.enable_retry
+                    else None
+                ),
+            },
         }
     except Exception as e:
         logger.error(f"Resilience stats failed: {e}")
@@ -821,9 +842,11 @@ async def root():
 # CLI Entry Point
 # =============================================================================
 
+
 def run_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = False):
     """Run the API server."""
     import uvicorn
+
     uvicorn.run(
         "api.endpoints:app",
         host=host,

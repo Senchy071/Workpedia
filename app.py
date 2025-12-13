@@ -1,9 +1,10 @@
 """Streamlit Web UI for Workpedia RAG System."""
 
-import streamlit as st
+import logging
 import tempfile
 from pathlib import Path
-import logging
+
+import streamlit as st
 
 from core.parser import DocumentParser
 from core.query_engine import QueryEngine
@@ -22,7 +23,8 @@ st.set_page_config(
 )
 
 # Custom CSS
-st.markdown("""
+st.markdown(
+    """
 <style>
     .main-header {
         font-size: 2.5rem;
@@ -48,7 +50,9 @@ st.markdown("""
         text-align: center;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 # Initialize session state
@@ -57,32 +61,41 @@ if "query_engine" not in st.session_state:
         try:
             # Step 1: Validate Ollama connectivity
             from core.llm import OllamaClient
+
             logger.info("Checking Ollama connectivity...")
 
             ollama_client = OllamaClient()
             health = ollama_client.health_check()
 
             if not health["server_reachable"]:
-                st.error(f"❌ **Ollama Server Not Reachable**")
+                st.error("❌ **Ollama Server Not Reachable**")
                 st.error(health["message"])
-                st.info("""
+                st.info(
+                    """
                 **To fix this:**
                 1. Start Ollama: `ollama serve`
                 2. Verify it's running: `ollama list`
                 3. Check the URL in config/config.py
-                """)
+                """
+                )
                 st.stop()
 
             if not health["model_available"]:
-                st.error(f"❌ **Model Not Available**")
+                st.error("❌ **Model Not Available**")
                 st.error(health["message"])
-                st.info(f"""
+                st.info(
+                    f"""
                 **To fix this:**
                 1. Pull the model: `ollama pull {health['model_name']}`
                 2. Or use a different model in config/config.py
 
-                **Available models:** {', '.join(health['available_models']) if health['available_models'] else 'none'}
-                """)
+                **Available models:** {
+                    ', '.join(health['available_models'])
+                    if health['available_models']
+                    else 'none'
+                }
+                """
+                )
                 st.stop()
 
             logger.info(f"✓ Ollama validated: {health['message']}")
@@ -98,7 +111,7 @@ if "query_engine" not in st.session_state:
             logger.info("✓ Streamlit app initialized successfully")
 
         except Exception as e:
-            st.error(f"❌ **Initialization Failed**")
+            st.error("❌ **Initialization Failed**")
             st.error(f"Error: {e}")
             logger.error(f"Failed to initialize Streamlit app: {e}", exc_info=True)
             st.stop()
@@ -112,7 +125,10 @@ if "uploaded_docs" not in st.session_state:
 
 # Header
 st.markdown('<p class="main-header">📚 Workpedia</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-header">Privacy-First RAG Document Question-Answering System</p>', unsafe_allow_html=True)
+st.markdown(
+    '<p class="sub-header">Privacy-First RAG Document Question-Answering System</p>',
+    unsafe_allow_html=True,
+)
 
 # Sidebar
 with st.sidebar:
@@ -150,7 +166,7 @@ with st.sidebar:
         min_value=1,
         max_value=10,
         value=5,
-        help="Number of document chunks to retrieve for context"
+        help="Number of document chunks to retrieve for context",
     )
 
     temperature = st.slider(
@@ -159,7 +175,7 @@ with st.sidebar:
         max_value=1.0,
         value=0.7,
         step=0.1,
-        help="LLM creativity (0=focused, 1=creative)"
+        help="LLM creativity (0=focused, 1=creative)",
     )
 
     st.divider()
@@ -174,9 +190,9 @@ with st.sidebar:
                 st.caption(f"**Chunks**: {doc['chunk_count']}")
                 st.caption(f"**Doc ID**: {doc['doc_id'][:16]}...")
 
-                if st.button(f"🗑️ Delete", key=f"delete_{doc['doc_id']}"):
+                if st.button("🗑️ Delete", key=f"delete_{doc['doc_id']}"):
                     try:
-                        st.session_state.query_engine.vector_store.delete_by_doc_id(doc['doc_id'])
+                        st.session_state.query_engine.vector_store.delete_by_doc_id(doc["doc_id"])
                         st.success("Document deleted!")
                         st.rerun()
                     except Exception as e:
@@ -188,7 +204,8 @@ with st.sidebar:
 
     # About
     with st.expander("ℹ️ About"):
-        st.markdown("""
+        st.markdown(
+            """
         **Workpedia** is a privacy-focused RAG system that:
         - Processes complex documents locally
         - Uses Ollama for LLM generation
@@ -196,7 +213,8 @@ with st.sidebar:
         - No data sent to external APIs
 
         Built with: Docling, Mistral, ChromaDB, FastAPI
-        """)
+        """
+        )
 
 
 # Main content area - Tabs
@@ -217,10 +235,16 @@ with tab1:
             if chat.get("sources"):
                 with st.expander(f"📑 Sources ({len(chat['sources'])} chunks)"):
                     for i, src in enumerate(chat["sources"], 1):
-                        st.markdown(f"**Source {i}** - {src['metadata'].get('filename', 'Unknown')}")
+                        st.markdown(
+                            f"**Source {i}** - {src['metadata'].get('filename', 'Unknown')}"
+                        )
                         st.caption(f"Section: {src['metadata'].get('section', 'N/A')}")
                         st.caption(f"Similarity: {src['similarity']:.2%}")
-                        st.text(src['content'][:200] + "..." if len(src['content']) > 200 else src['content'])
+                        st.text(
+                            src["content"][:200] + "..."
+                            if len(src["content"]) > 200
+                            else src["content"]
+                        )
                         st.divider()
 
     # Chat input
@@ -249,18 +273,25 @@ with tab1:
                         if result.sources:
                             with st.expander(f"📑 Sources ({len(result.sources)} chunks)"):
                                 for i, src in enumerate(result.sources, 1):
-                                    st.markdown(f"**Source {i}** - {src['metadata'].get('filename', 'Unknown')}")
+                                    filename = src["metadata"].get("filename", "Unknown")
+                                    st.markdown(f"**Source {i}** - {filename}")
                                     st.caption(f"Section: {src['metadata'].get('section', 'N/A')}")
                                     st.caption(f"Similarity: {src['similarity']:.2%}")
-                                    st.text(src['content'][:200] + "..." if len(src['content']) > 200 else src['content'])
+                                    st.text(
+                                        src["content"][:200] + "..."
+                                        if len(src["content"]) > 200
+                                        else src["content"]
+                                    )
                                     st.divider()
 
                         # Save to history
-                        st.session_state.chat_history.append({
-                            "question": question,
-                            "answer": result.answer,
-                            "sources": result.sources,
-                        })
+                        st.session_state.chat_history.append(
+                            {
+                                "question": question,
+                                "answer": result.answer,
+                                "sources": result.sources,
+                            }
+                        )
 
                     except Exception as e:
                         st.error(f"Query failed: {e}")
@@ -277,7 +308,7 @@ with tab2:
             "Choose PDF, DOCX, or HTML files",
             type=["pdf", "docx", "html", "htm"],
             accept_multiple_files=True,
-            help="Upload documents to index them for question-answering"
+            help="Upload documents to index them for question-answering",
         )
 
         if uploaded_files:
@@ -290,7 +321,9 @@ with tab2:
                         status_text.text(f"Processing {uploaded_file.name}...")
 
                         # Save uploaded file to temp location
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp_file:
+                        with tempfile.NamedTemporaryFile(
+                            delete=False, suffix=Path(uploaded_file.name).suffix
+                        ) as tmp_file:
                             tmp_file.write(uploaded_file.getvalue())
                             tmp_path = tmp_file.name
 
@@ -308,14 +341,18 @@ with tab2:
                         progress_bar.progress(progress)
 
                         # Show success
-                        st.success(f"✅ {uploaded_file.name}: {result['chunks_added']} chunks indexed")
+                        st.success(
+                            f"✅ {uploaded_file.name}: {result['chunks_added']} chunks indexed"
+                        )
 
                         # Track uploaded
-                        st.session_state.uploaded_docs.append({
-                            "filename": uploaded_file.name,
-                            "chunks": result['chunks_added'],
-                            "doc_id": result['doc_id'],
-                        })
+                        st.session_state.uploaded_docs.append(
+                            {
+                                "filename": uploaded_file.name,
+                                "chunks": result["chunks_added"],
+                                "doc_id": result["doc_id"],
+                            }
+                        )
 
                     except Exception as e:
                         st.error(f"❌ {uploaded_file.name}: {e}")
@@ -328,7 +365,8 @@ with tab2:
                 st.rerun()
 
     with col2:
-        st.info("""
+        st.info(
+            """
         **Supported Formats:**
         - PDF
         - DOCX
@@ -340,7 +378,8 @@ with tab2:
         3. Split into semantic chunks
         4. Generate embeddings
         5. Store in vector database
-        """)
+        """
+        )
 
 # Tab 3: Statistics
 with tab3:
@@ -355,18 +394,18 @@ with tab3:
         with col1:
             st.markdown('<div class="stat-box">', unsafe_allow_html=True)
             st.metric("Documents", stats["documents"])
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         with col2:
             st.markdown('<div class="stat-box">', unsafe_allow_html=True)
             st.metric("Total Chunks", stats["total_chunks"])
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         with col3:
             st.markdown('<div class="stat-box">', unsafe_allow_html=True)
             avg_chunks = stats["total_chunks"] / stats["documents"] if stats["documents"] > 0 else 0
             st.metric("Avg Chunks/Doc", f"{avg_chunks:.1f}")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.divider()
 
@@ -376,6 +415,7 @@ with tab3:
 
         if docs:
             import pandas as pd
+
             df = pd.DataFrame(docs)
             st.dataframe(
                 df[["filename", "chunk_count", "doc_id"]],
@@ -396,7 +436,9 @@ with tab3:
             st.markdown(f"**Embedding Model**: {st.session_state.query_engine.embedder.model_name}")
 
         with col2:
-            st.markdown(f"**Embedding Dimension**: {st.session_state.query_engine.embedder.dimension}")
+            st.markdown(
+                f"**Embedding Dimension**: {st.session_state.query_engine.embedder.dimension}"
+            )
             st.markdown(f"**Vector Store**: {stats['collection_name']}")
 
     except Exception as e:
@@ -405,4 +447,8 @@ with tab3:
 
 # Footer
 st.divider()
-st.caption("Workpedia - Privacy-First RAG System | All processing happens locally | No data sent to external APIs")
+st.caption(
+    "Workpedia - Privacy-First RAG System | "
+    "All processing happens locally | "
+    "No data sent to external APIs"
+)

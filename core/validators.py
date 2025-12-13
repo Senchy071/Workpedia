@@ -10,12 +10,11 @@ This module provides comprehensive validation for:
 All validation functions raise ValueError with descriptive messages on validation failure.
 """
 
+import os
 import re
 import uuid
 from pathlib import Path
-from typing import Optional, List, Set
-import os
-
+from typing import Optional, Set
 
 # ============================================================================
 # Query Validation

@@ -2,10 +2,10 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
-from core.parser import DocumentParser
 from core.analyzer import StructureAnalyzer
+from core.parser import DocumentParser
 
 logger = logging.getLogger(__name__)
 

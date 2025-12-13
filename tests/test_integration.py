@@ -1,15 +1,16 @@
 """Integration tests for document processing pipeline."""
 
-import pytest
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
-from processors.pdf_processor import PDFProcessor
+import pytest
+
+from core.progress_tracker import ProgressTracker
+from core.validator import DocumentValidator
 from processors.docx_processor import DOCXProcessor
 from processors.html_processor import HTMLProcessor
 from processors.image_processor import ImageProcessor
-from core.validator import DocumentValidator
-from core.progress_tracker import ProgressTracker
+from processors.pdf_processor import PDFProcessor
 
 
 class TestIntegration:

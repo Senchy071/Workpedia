@@ -8,20 +8,20 @@ This module provides production-ready logging with:
 - JSON formatting option for log aggregation
 """
 
+import contextvars
+import functools
+import json
 import logging
 import logging.handlers
 import sys
 import time
-import json
-import functools
-from pathlib import Path
-from typing import Optional, Dict, Any, Callable
 from datetime import datetime
-import contextvars
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional
 
 # Context variables for request tracking
-request_id_var = contextvars.ContextVar('request_id', default=None)
-doc_id_var = contextvars.ContextVar('doc_id', default=None)
+request_id_var = contextvars.ContextVar("request_id", default=None)
+doc_id_var = contextvars.ContextVar("doc_id", default=None)
 
 
 class ContextFilter(logging.Filter):
@@ -29,8 +29,8 @@ class ContextFilter(logging.Filter):
 
     def filter(self, record):
         """Add request_id and doc_id to log record if available."""
-        record.request_id = request_id_var.get() or '-'
-        record.doc_id = doc_id_var.get() or '-'
+        record.request_id = request_id_var.get() or "-"
+        record.doc_id = doc_id_var.get() or "-"
         return True
 
 
@@ -44,30 +44,50 @@ class StructuredFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON."""
         log_data = {
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
-            'level': record.levelname,
-            'logger': record.name,
-            'message': record.getMessage(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
         }
 
         # Add context if available
-        if hasattr(record, 'request_id') and record.request_id != '-':
-            log_data['request_id'] = record.request_id
-        if hasattr(record, 'doc_id') and record.doc_id != '-':
-            log_data['doc_id'] = record.doc_id
+        if hasattr(record, "request_id") and record.request_id != "-":
+            log_data["request_id"] = record.request_id
+        if hasattr(record, "doc_id") and record.doc_id != "-":
+            log_data["doc_id"] = record.doc_id
 
         # Add exception info if present
         if record.exc_info:
-            log_data['exception'] = self.formatException(record.exc_info)
+            log_data["exception"] = self.formatException(record.exc_info)
 
         # Add extra fields from record.__dict__
         extra_fields = {}
         for key, value in record.__dict__.items():
-            if key not in ['name', 'msg', 'args', 'created', 'filename', 'funcName',
-                           'levelname', 'levelno', 'lineno', 'module', 'msecs', 'message',
-                           'pathname', 'process', 'processName', 'relativeCreated',
-                           'thread', 'threadName', 'exc_info', 'exc_text', 'stack_info',
-                           'request_id', 'doc_id']:
+            if key not in [
+                "name",
+                "msg",
+                "args",
+                "created",
+                "filename",
+                "funcName",
+                "levelname",
+                "levelno",
+                "lineno",
+                "module",
+                "msecs",
+                "message",
+                "pathname",
+                "process",
+                "processName",
+                "relativeCreated",
+                "thread",
+                "threadName",
+                "exc_info",
+                "exc_text",
+                "stack_info",
+                "request_id",
+                "doc_id",
+            ]:
                 try:
                     # Only include JSON-serializable values
                     json.dumps(value)
@@ -76,7 +96,7 @@ class StructuredFormatter(logging.Formatter):
                     extra_fields[key] = str(value)
 
         if extra_fields:
-            log_data['extra'] = extra_fields
+            log_data["extra"] = extra_fields
 
         return json.dumps(log_data)
 
@@ -90,14 +110,14 @@ class ColoredFormatter(logging.Formatter):
 
     # ANSI color codes
     COLORS = {
-        'DEBUG': '\033[36m',      # Cyan
-        'INFO': '\033[32m',       # Green
-        'WARNING': '\033[33m',    # Yellow
-        'ERROR': '\033[31m',      # Red
-        'CRITICAL': '\033[35m',   # Magenta
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
+        "CRITICAL": "\033[35m",  # Magenta
     }
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
 
     def format(self, record: logging.LogRecord) -> str:
         """Format log record with colors."""
@@ -109,9 +129,9 @@ class ColoredFormatter(logging.Formatter):
 
         # Add context info if available
         context_parts = []
-        if hasattr(record, 'request_id') and record.request_id != '-':
+        if hasattr(record, "request_id") and record.request_id != "-":
             context_parts.append(f"req={record.request_id[:8]}")
-        if hasattr(record, 'doc_id') and record.doc_id != '-':
+        if hasattr(record, "doc_id") and record.doc_id != "-":
             context_parts.append(f"doc={record.doc_id[:8]}")
 
         if context_parts:
@@ -187,13 +207,11 @@ def setup_logging(
         console_formatter = StructuredFormatter()
     elif console_colors:
         console_formatter = ColoredFormatter(
-            fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
     else:
         console_formatter = logging.Formatter(
-            fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
 
     console_handler.setFormatter(console_formatter)
@@ -202,8 +220,7 @@ def setup_logging(
     # File handlers (if log_file or log_dir specified)
     if log_file:
         _add_file_handler(
-            root_logger, log_file, level, max_bytes, backup_count,
-            structured, context_filter
+            root_logger, log_file, level, max_bytes, backup_count, structured, context_filter
         )
     elif log_dir:
         log_dir = Path(log_dir)
@@ -211,8 +228,13 @@ def setup_logging(
 
         # Main application log
         _add_file_handler(
-            root_logger, log_dir / "app.log", level, max_bytes, backup_count,
-            structured, context_filter
+            root_logger,
+            log_dir / "app.log",
+            level,
+            max_bytes,
+            backup_count,
+            structured,
+            context_filter,
         )
 
         # Error log (only ERROR and above)
@@ -226,10 +248,13 @@ def setup_logging(
         if structured:
             error_handler.setFormatter(StructuredFormatter())
         else:
-            error_handler.setFormatter(logging.Formatter(
-                fmt='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
-                datefmt='%Y-%m-%d %H:%M:%S'
-            ))
+            fmt = (
+                "%(asctime)s - %(name)s - %(levelname)s - "
+                "[%(filename)s:%(lineno)d] - %(message)s"
+            )
+            error_handler.setFormatter(
+                logging.Formatter(fmt=fmt, datefmt="%Y-%m-%d %H:%M:%S")
+            )
         root_logger.addHandler(error_handler)
 
     # Configure per-module log levels
@@ -239,10 +264,10 @@ def setup_logging(
             module_logger.setLevel(getattr(logging, module_level.upper()))
 
     # Suppress noisy third-party loggers
-    logging.getLogger('urllib3').setLevel(logging.WARNING)
-    logging.getLogger('requests').setLevel(logging.WARNING)
-    logging.getLogger('chromadb').setLevel(logging.WARNING)
-    logging.getLogger('sentence_transformers').setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)
+    logging.getLogger("chromadb").setLevel(logging.WARNING)
+    logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 
     # Log configuration success
     root_logger.info(
@@ -272,15 +297,17 @@ def _add_file_handler(
     if structured:
         file_handler.setFormatter(StructuredFormatter())
     else:
-        file_handler.setFormatter(logging.Formatter(
-            fmt='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        ))
+        fmt = (
+            "%(asctime)s - %(name)s - %(levelname)s - "
+            "[%(filename)s:%(lineno)d] - %(message)s"
+        )
+        file_handler.setFormatter(logging.Formatter(fmt=fmt, datefmt="%Y-%m-%d %H:%M:%S"))
 
     logger.addHandler(file_handler)
 
 
 # Context managers for setting context variables
+
 
 class LogContext:
     """
@@ -334,6 +361,7 @@ def get_doc_id() -> Optional[str]:
 
 # Performance timing decorator
 
+
 def log_timing(
     logger: Optional[logging.Logger] = None,
     level: int = logging.INFO,
@@ -355,6 +383,7 @@ def log_timing(
 
         # Logs: "process_document completed in 2.345s"
     """
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -371,30 +400,27 @@ def log_timing(
                     func_name=func.__name__,
                     elapsed=elapsed,
                 )
-                logger.log(level, message, extra={'elapsed_time': elapsed})
+                logger.log(level, message, extra={"elapsed_time": elapsed})
 
                 return result
             except Exception as e:
                 elapsed = time.time() - start_time
                 logger.error(
                     f"{func.__name__} failed after {elapsed:.3f}s: {e}",
-                    extra={'elapsed_time': elapsed, 'error': str(e)},
-                    exc_info=True
+                    extra={"elapsed_time": elapsed, "error": str(e)},
+                    exc_info=True,
                 )
                 raise
 
         return wrapper
+
     return decorator
 
 
 # Utility functions for structured logging
 
-def log_with_context(
-    logger: logging.Logger,
-    level: int,
-    message: str,
-    **context: Any
-) -> None:
+
+def log_with_context(logger: logging.Logger, level: int, message: str, **context: Any) -> None:
     """
     Log message with additional context fields.
 
@@ -416,12 +442,7 @@ def log_with_context(
     logger.log(level, message, extra=context)
 
 
-def log_performance(
-    logger: logging.Logger,
-    operation: str,
-    elapsed: float,
-    **metrics: Any
-) -> None:
+def log_performance(logger: logging.Logger, operation: str, elapsed: float, **metrics: Any) -> None:
     """
     Log performance metrics.
 
@@ -442,9 +463,10 @@ def log_performance(
         )
     """
     log_with_context(
-        logger, logging.INFO,
+        logger,
+        logging.INFO,
         f"Performance: {operation} completed in {elapsed:.3f}s",
         operation=operation,
         elapsed_time=elapsed,
-        **metrics
+        **metrics,
     )
