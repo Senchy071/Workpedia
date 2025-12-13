@@ -11,10 +11,9 @@ def test_imports():
         import sentence_transformers
         import torch
         print("✓ All core packages imported successfully")
-        return True
     except ImportError as e:
         print(f"✗ Import failed: {e}")
-        return False
+        assert False, f"Import failed: {e}"
 
 def test_ollama():
     """Test Ollama availability."""
@@ -25,15 +24,15 @@ def test_ollama():
             text=True,
             timeout=5
         )
-        if "mistral" in result.stdout:
-            print("✓ Ollama with Mistral model is available")
-            return True
-        else:
-            print("✗ Mistral model not found in Ollama")
-            return False
+        assert "mistral" in result.stdout, "Mistral model not found in Ollama"
+        print("✓ Ollama with Mistral model is available")
+    except subprocess.TimeoutExpired:
+        assert False, "Ollama command timed out"
+    except FileNotFoundError:
+        assert False, "Ollama command not found - is Ollama installed?"
     except Exception as e:
         print(f"✗ Ollama test failed: {e}")
-        return False
+        assert False, f"Ollama test failed: {e}"
 
 def test_project_structure():
     """Verify project structure exists."""
@@ -43,15 +42,16 @@ def test_project_structure():
     ]
     project_root = Path(__file__).parent.parent
 
-    all_exist = True
+    missing_dirs = []
     for dir_name in required_dirs:
         dir_path = project_root / dir_name
         if dir_path.exists():
             print(f"✓ {dir_name}/ exists")
         else:
             print(f"✗ {dir_name}/ missing")
-            all_exist = False
-    return all_exist
+            missing_dirs.append(dir_name)
+
+    assert not missing_dirs, f"Missing directories: {', '.join(missing_dirs)}"
 
 def test_config():
     """Test configuration file."""
@@ -65,10 +65,14 @@ def test_config():
         print(f"  - Ollama model: {OLLAMA_MODEL}")
         print(f"  - Embedding model: {EMBEDDING_MODEL}")
         print(f"  - ChromaDB collection: {CHROMA_COLLECTION_NAME}")
-        return True
+
+        # Verify config values are set
+        assert OLLAMA_MODEL, "OLLAMA_MODEL not configured"
+        assert EMBEDDING_MODEL, "EMBEDDING_MODEL not configured"
+        assert CHROMA_COLLECTION_NAME, "CHROMA_COLLECTION_NAME not configured"
     except Exception as e:
         print(f"✗ Configuration test failed: {e}")
-        return False
+        assert False, f"Configuration test failed: {e}"
 
 if __name__ == "__main__":
     print("=" * 60)
@@ -82,16 +86,22 @@ if __name__ == "__main__":
         ("Configuration", test_config),
     ]
 
-    results = []
+    passed = 0
+    failed = 0
     for name, test_func in tests:
         print(f"\n{name}:")
-        results.append(test_func())
+        try:
+            test_func()
+            passed += 1
+        except AssertionError as e:
+            print(f"  FAILED: {e}")
+            failed += 1
 
     print("\n" + "=" * 60)
-    if all(results):
-        print("✓ ALL PHASE 1 TESTS PASSED")
+    if failed == 0:
+        print(f"✓ ALL {passed} PHASE 1 TESTS PASSED")
         print("Ready to proceed to Phase 2")
     else:
-        print("✗ SOME TESTS FAILED")
+        print(f"✗ {failed} TEST(S) FAILED, {passed} PASSED")
         print("Fix issues before proceeding")
     print("=" * 60)
