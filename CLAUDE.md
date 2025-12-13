@@ -52,12 +52,22 @@ data/         # Input documents and processed output
 
 **Key Configuration** (config/config.py):
 
-- Ollama: <http://localhost:11434> using "mistral" model
+Core Settings:
+- Ollama: http://localhost:11434 using "mistral" model
 - ChromaDB: Persisted to `chroma_db/` in project root, collection "workpedia_docs"
 - Chunking: 512 tokens with 15% overlap
-- Embedding dimension: 768
+- Embedding: sentence-transformers/all-mpnet-base-v2 (768 dimensions)
+
+Document Processing:
 - Large documents: >100 pages or >50MB processed in 75-page chunks
 - Backend selection: Auto-detect large docs (>200 pages OR >20MB) → use PyPdfium backend
+- VLM settings: Granite-Docling model with configurable batch size
+
+Production Settings:
+- Logging: INFO level, file rotation (10MB, 5 backups), structured JSON option
+- Retry: Max 3 attempts, exponential backoff (1s → 2s → 4s → 8s)
+- Circuit breaker: Opens after 5 failures, 60s recovery timeout
+- Timeouts: Health check (5s), generation (120s), streaming (180s)
 
 ## Development Commands
 
@@ -146,6 +156,29 @@ timeout 30 ollama run mistral "test prompt"
 - `core/validator.py`: DocumentValidator for result validation
 - `core/progress_tracker.py`: ProgressTracker for processing monitoring
 - `processors/`: Format-specific processors (PDF, DOCX, HTML, Image)
+
+**Production Infrastructure** (ALL COMPLETE):
+
+- `core/exceptions.py`: Custom exception hierarchy
+  - WorkpediaError base class with context
+  - Specific exceptions for document, parsing, embedding, query, validation, and LLM errors
+- `core/logging_config.py`: Production logging infrastructure
+  - Structured JSON logging for production
+  - Colored console logging for development
+  - Context-aware logging (request IDs, doc IDs)
+  - Performance timing decorators
+  - File rotation (10MB per file, 5 backups)
+- `core/validators.py`: Input validation and sanitization
+  - Query validation (length, content, security)
+  - File path security (path traversal prevention)
+  - Document ID validation
+  - File upload validation (size, type, content)
+  - Metadata validation
+- `core/resilience.py`: Connection resilience patterns
+  - Retry logic with exponential backoff
+  - Circuit breaker pattern (fail-fast when Ollama down)
+  - Per-operation timeouts
+  - Statistics tracking
 
 **Phase 3 Components** (ALL COMPLETE):
 

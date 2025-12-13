@@ -29,7 +29,11 @@ workpedia/
 │   ├── chunker.py       # SemanticChunker for structure-aware chunking
 │   ├── embedder.py      # Embedder for semantic vector generation
 │   ├── llm.py           # OllamaClient for LLM integration
-│   └── query_engine.py  # RAG query engine
+│   ├── query_engine.py  # RAG query engine
+│   ├── exceptions.py    # Custom exception hierarchy
+│   ├── logging_config.py # Production logging infrastructure
+│   ├── validators.py    # Input validation and sanitization
+│   └── resilience.py    # Connection resilience patterns
 ├── processors/          # Document type-specific processors
 │   ├── pdf_processor.py # PDF processing with auto-fallback
 │   ├── docx_processor.py
@@ -279,11 +283,22 @@ pytest tests/test_parser.py -v
 
 Edit `config/config.py` to customize:
 
-- **Ollama settings**: Model name and API endpoint
-- **Embedding settings**: Model choice and dimensions
+**Core Settings:**
+- **Ollama settings**: Model name (default: "mistral") and API endpoint (http://localhost:11434)
+- **Embedding settings**: Model choice (all-mpnet-base-v2) and dimensions (768)
 - **ChromaDB settings**: Storage location and collection name
 - **Chunking settings**: Chunk size (512 tokens) and overlap (15%)
-- **Large document thresholds**: Page count and file size limits
+
+**Document Processing:**
+- **Large document thresholds**: Page count (100 pages) and file size limits (50MB)
+- **Backend selection**: Auto-detect threshold (200 pages or 20MB)
+- **VLM settings**: Granite-Docling model and batch size
+
+**Production Settings:**
+- **Logging**: Log level, file rotation, structured JSON, colored console output
+- **Retry logic**: Max attempts (3), exponential backoff delays, jitter
+- **Circuit breaker**: Failure threshold (5), recovery timeout (60s)
+- **Timeouts**: Per-operation timeouts (health check: 5s, generation: 120s, streaming: 180s)
 
 ## Development Status
 
@@ -319,7 +334,16 @@ Edit `config/config.py` to customize:
 - [x] FastAPI REST endpoints with OpenAPI docs
 - [x] Document upload and indexing API
 - [x] Health checks and system statistics
+- [x] Streamlit web UI for user-friendly document upload and Q&A
 - [x] 111 tests passing
+
+### Production Improvements - Complete ✓
+
+- [x] **Ollama Startup Validation**: Fast-fail with clear errors when Ollama unavailable
+- [x] **Custom Exception Hierarchy**: Comprehensive error types with context
+- [x] **Production Logging**: Structured logging, request tracking, file rotation
+- [x] **Input Validation**: Security hardening against path traversal, injection attacks
+- [x] **Connection Resilience**: Retry with exponential backoff, circuit breaker pattern
 
 ## Technology Stack
 
@@ -350,6 +374,16 @@ Edit `config/config.py` to customize:
 - **RAG Query Engine**: Combines retrieval and generation for accurate answers
 - **REST API**: Full-featured API with streaming support and OpenAPI docs
 - **Web UI**: User-friendly Streamlit interface for document upload and Q&A
+
+## Production-Ready Features
+
+Workpedia includes enterprise-grade features for reliability and maintainability:
+
+1. **Ollama Startup Validation**: Fast-fail behavior with clear error messages when Ollama is unavailable or misconfigured
+2. **Custom Exception Hierarchy**: Comprehensive error handling with specific exceptions for different failure modes
+3. **Production Logging**: Structured logging infrastructure with configurable levels and output formats
+4. **Input Validation**: Robust sanitization and validation of all user inputs and file uploads
+5. **Connection Resilience**: Automatic retry logic with exponential backoff for Ollama connectivity
 
 ## License
 
