@@ -43,6 +43,7 @@ from core.validators import (
     validate_document_id,
     sanitize_filename,
 )
+from core.resilience import CircuitBreakerError
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +313,25 @@ async def validation_error_handler(request: Request, exc: ValidationError):
             "error": "ValidationError",
             "message": exc.message,
             "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(CircuitBreakerError)
+async def circuit_breaker_handler(request: Request, exc: CircuitBreakerError):
+    """Handle circuit breaker open errors - 503 with graceful degradation."""
+    logger.error(f"Circuit breaker is open: {exc}")
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": "CircuitBreakerError",
+            "message": str(exc),
+            "suggestion": (
+                "The LLM service is temporarily unavailable due to repeated failures. "
+                "The system is protecting itself from cascading failures. "
+                "Please try again in a few moments."
+            ),
+            "retry_after": 60,  # seconds
         }
     )
 
@@ -760,6 +780,31 @@ async def get_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/resilience", tags=["System"])
+async def get_resilience_stats():
+    """Get resilience statistics (circuit breaker, retry)."""
+    if query_engine is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    try:
+        circuit_breaker_stats = query_engine.llm.get_circuit_breaker_stats()
+
+        return {
+            "circuit_breaker": circuit_breaker_stats if circuit_breaker_stats else {
+                "enabled": False,
+                "message": "Circuit breaker is disabled"
+            },
+            "retry": {
+                "enabled": query_engine.llm.enable_retry,
+                "max_attempts": query_engine.llm.retry_config.max_retries if query_engine.llm.enable_retry else None,
+                "initial_delay": query_engine.llm.retry_config.initial_delay if query_engine.llm.enable_retry else None,
+            }
+        }
+    except Exception as e:
+        logger.error(f"Resilience stats failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/", tags=["System"])
 async def root():
     """API root - basic info."""
@@ -768,6 +813,7 @@ async def root():
         "version": "1.0.0",
         "docs": "/docs",
         "health": "/health",
+        "resilience": "/resilience",
     }
 
 

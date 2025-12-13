@@ -53,3 +53,26 @@ LOG_MODULE_LEVELS = {
 # Performance logging
 LOG_PERFORMANCE = True  # Log timing information for operations
 LOG_SLOW_OPERATION_THRESHOLD = 1.0  # Log warning if operation takes >1s
+
+# Resilience settings (retry, circuit breaker, timeouts)
+# Retry configuration
+RETRY_ENABLED = True  # Enable retry logic with exponential backoff
+RETRY_MAX_ATTEMPTS = 3  # Maximum number of retry attempts
+RETRY_INITIAL_DELAY = 1.0  # Initial delay in seconds
+RETRY_MAX_DELAY = 30.0  # Maximum delay in seconds
+RETRY_EXPONENTIAL_BASE = 2.0  # Base for exponential backoff
+RETRY_JITTER = True  # Add randomness to prevent thundering herd
+
+# Circuit breaker configuration
+CIRCUIT_BREAKER_ENABLED = True  # Enable circuit breaker pattern
+CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5  # Open circuit after N consecutive failures
+CIRCUIT_BREAKER_RECOVERY_TIMEOUT = 60.0  # Seconds to wait before testing recovery
+CIRCUIT_BREAKER_SUCCESS_THRESHOLD = 2  # Successful calls to close from half-open
+CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS = 3  # Max concurrent calls in half-open state
+
+# Timeout configuration (seconds)
+TIMEOUT_DEFAULT = 120.0  # Default timeout for all operations
+TIMEOUT_HEALTH_CHECK = 5.0  # Timeout for health checks
+TIMEOUT_LIST_MODELS = 10.0  # Timeout for listing models
+TIMEOUT_GENERATE = 120.0  # Timeout for non-streaming generation
+TIMEOUT_GENERATE_STREAM = 180.0  # Timeout for streaming generation
