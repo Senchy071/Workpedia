@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from pypdf import PdfReader
 
@@ -114,7 +114,7 @@ class PDFProcessor:
         file_path: Path | str,
         metadata: Optional[Dict[str, Any]] = None,
         analyze_structure: bool = True,
-        progress_callback: Optional[callable] = None,
+        progress_callback: Optional[Callable] = None,
     ) -> Dict[str, Any]:
         """
         Process PDF document with automatic fallback on crashes.

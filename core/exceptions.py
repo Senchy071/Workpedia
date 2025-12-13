@@ -5,6 +5,8 @@ and debugging throughout the application. Each exception type includes context
 and actionable error messages.
 """
 
+from typing import Any, Dict, List, Optional
+
 
 class WorkpediaError(Exception):
     """
@@ -18,7 +20,7 @@ class WorkpediaError(Exception):
         context: Optional dictionary with additional context
     """
 
-    def __init__(self, message: str, context: dict = None):
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
         """
         Initialize exception with message and optional context.
 
@@ -64,7 +66,7 @@ class DocumentNotFoundError(DocumentProcessingError):
 class DocumentParsingError(DocumentProcessingError):
     """Failed to parse document."""
 
-    def __init__(self, file_path: str, reason: str = None):
+    def __init__(self, file_path: str, reason: Optional[str] = None):
         message = f"Failed to parse document: {file_path}"
         if reason:
             message += f" - {reason}"
@@ -77,7 +79,7 @@ class DocumentParsingError(DocumentProcessingError):
 class UnsupportedFormatError(DocumentProcessingError):
     """Document format not supported."""
 
-    def __init__(self, file_path: str, format: str = None):
+    def __init__(self, file_path: str, format: Optional[str] = None):
         message = f"Unsupported document format: {file_path}"
         if format:
             message += f" (format: {format})"
@@ -90,7 +92,7 @@ class UnsupportedFormatError(DocumentProcessingError):
 class ChunkingError(DocumentProcessingError):
     """Failed to chunk document."""
 
-    def __init__(self, doc_id: str, reason: str = None):
+    def __init__(self, doc_id: str, reason: Optional[str] = None):
         message = f"Failed to chunk document: {doc_id}"
         if reason:
             message += f" - {reason}"
@@ -112,7 +114,7 @@ class LLMError(WorkpediaError):
 class OllamaConnectionError(LLMError):
     """Ollama server is not reachable."""
 
-    def __init__(self, base_url: str, reason: str = None):
+    def __init__(self, base_url: str, reason: Optional[str] = None):
         message = f"Cannot connect to Ollama server at {base_url}"
         if reason:
             message += f" - {reason}"
@@ -125,7 +127,7 @@ class OllamaConnectionError(LLMError):
 class OllamaModelNotFoundError(LLMError):
     """Requested model not available in Ollama."""
 
-    def __init__(self, model_name: str, available_models: list = None):
+    def __init__(self, model_name: str, available_models: Optional[List[str]] = None):
         message = f"Model '{model_name}' not found in Ollama"
         if available_models:
             message += f". Available models: {', '.join(available_models[:5])}"
@@ -140,7 +142,7 @@ class OllamaModelNotFoundError(LLMError):
 class OllamaGenerationError(LLMError):
     """LLM text generation failed."""
 
-    def __init__(self, reason: str = None, model: str = None):
+    def __init__(self, reason: Optional[str] = None, model: Optional[str] = None):
         message = "LLM generation failed"
         if model:
             message += f" (model: {model})"
@@ -155,7 +157,7 @@ class OllamaGenerationError(LLMError):
 class OllamaTimeoutError(LLMError):
     """LLM request timed out."""
 
-    def __init__(self, timeout: int, model: str = None):
+    def __init__(self, timeout: int, model: Optional[str] = None):
         message = f"LLM request timed out after {timeout}s"
         if model:
             message += f" (model: {model})"
@@ -177,7 +179,7 @@ class EmbeddingError(WorkpediaError):
 class EmbeddingGenerationError(EmbeddingError):
     """Failed to generate embeddings."""
 
-    def __init__(self, reason: str = None, model: str = None, text_length: int = None):
+    def __init__(self, reason: Optional[str] = None, model: Optional[str] = None, text_length: Optional[int] = None):
         message = "Failed to generate embeddings"
         if model:
             message += f" (model: {model})"
@@ -211,7 +213,7 @@ class VectorStoreError(WorkpediaError):
 class VectorStoreConnectionError(VectorStoreError):
     """Cannot connect to vector store."""
 
-    def __init__(self, store_path: str, reason: str = None):
+    def __init__(self, store_path: str, reason: Optional[str] = None):
         message = f"Cannot connect to vector store at {store_path}"
         if reason:
             message += f" - {reason}"
@@ -234,7 +236,7 @@ class DocumentNotIndexedError(VectorStoreError):
 class IndexingError(VectorStoreError):
     """Failed to index document."""
 
-    def __init__(self, doc_id: str, reason: str = None):
+    def __init__(self, doc_id: str, reason: Optional[str] = None):
         message = f"Failed to index document: {doc_id}"
         if reason:
             message += f" - {reason}"
@@ -247,7 +249,7 @@ class IndexingError(VectorStoreError):
 class VectorStoreQueryError(VectorStoreError):
     """Query to vector store failed."""
 
-    def __init__(self, reason: str = None, query_length: int = None):
+    def __init__(self, reason: Optional[str] = None, query_length: Optional[int] = None):
         message = "Vector store query failed"
         if reason:
             message += f" - {reason}"
@@ -279,7 +281,7 @@ class InvalidQueryError(ValidationError):
 class InvalidDocumentIdError(ValidationError):
     """Invalid document ID format."""
 
-    def __init__(self, doc_id: str, expected_format: str = None):
+    def __init__(self, doc_id: str, expected_format: Optional[str] = None):
         message = f"Invalid document ID: {doc_id}"
         if expected_format:
             message += f" (expected format: {expected_format})"
@@ -331,7 +333,7 @@ class NoResultsError(QueryError):
 class QueryExecutionError(QueryError):
     """Failed to execute query."""
 
-    def __init__(self, query: str, reason: str = None):
+    def __init__(self, query: str, reason: Optional[str] = None):
         message = "Query execution failed"
         if reason:
             message += f" - {reason}"

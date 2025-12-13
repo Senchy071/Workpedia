@@ -1,6 +1,7 @@
 """ChromaDB vector store for document chunk storage and retrieval."""
 
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 

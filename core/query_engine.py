@@ -114,7 +114,7 @@ class QueryEngine:
         try:
             question = validate_query(question, min_length=1, max_length=5000)
         except ValueError as e:
-            raise InvalidQueryError(str(e)) from e
+            raise InvalidQueryError(query=question, reason=str(e)) from e
 
         # Validate parameters
         try:
@@ -124,14 +124,14 @@ class QueryEngine:
                 max_tokens=max_tokens,
             )
         except ValueError as e:
-            raise InvalidParameterError(str(e)) from e
+            raise InvalidParameterError(param_name="params", param_value="", reason=str(e)) from e
 
         # Validate doc_id if provided
         if doc_id is not None:
             try:
                 doc_id = validate_document_id(doc_id)
             except ValueError as e:
-                raise InvalidParameterError(f"Invalid doc_id: {e}") from e
+                raise InvalidParameterError(param_name="doc_id", param_value=str(doc_id), reason=str(e)) from e
 
         # Use validated or default values
         n_results = params.get("n_results", n_results or self.n_results)
@@ -214,7 +214,7 @@ class QueryEngine:
         try:
             question = validate_query(question, min_length=1, max_length=5000)
         except ValueError as e:
-            raise InvalidQueryError(str(e)) from e
+            raise InvalidQueryError(query=question, reason=str(e)) from e
 
         # Validate parameters
         try:
@@ -224,14 +224,14 @@ class QueryEngine:
                 max_tokens=max_tokens,
             )
         except ValueError as e:
-            raise InvalidParameterError(str(e)) from e
+            raise InvalidParameterError(param_name="params", param_value="", reason=str(e)) from e
 
         # Validate doc_id if provided
         if doc_id is not None:
             try:
                 doc_id = validate_document_id(doc_id)
             except ValueError as e:
-                raise InvalidParameterError(f"Invalid doc_id: {e}") from e
+                raise InvalidParameterError(param_name="doc_id", param_value=str(doc_id), reason=str(e)) from e
 
         # Use validated or default values
         n_results = params.get("n_results", n_results or self.n_results)
@@ -369,20 +369,20 @@ class QueryEngine:
         try:
             question = validate_query(question, min_length=1, max_length=5000)
         except ValueError as e:
-            raise InvalidQueryError(str(e)) from e
+            raise InvalidQueryError(query=question, reason=str(e)) from e
 
         # Validate parameters
         try:
             params = validate_query_params(n_results=n_results)
         except ValueError as e:
-            raise InvalidParameterError(str(e)) from e
+            raise InvalidParameterError(param_name="params", param_value="", reason=str(e)) from e
 
         # Validate doc_id if provided
         if doc_id is not None:
             try:
                 doc_id = validate_document_id(doc_id)
             except ValueError as e:
-                raise InvalidParameterError(f"Invalid doc_id: {e}") from e
+                raise InvalidParameterError(param_name="doc_id", param_value=str(doc_id), reason=str(e)) from e
 
         # Use validated values
         n_results = params.get("n_results", n_results)
