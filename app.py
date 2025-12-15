@@ -330,6 +330,11 @@ with tab2:
                         # Parse document
                         parsed_doc = st.session_state.parser.parse(tmp_path)
 
+                        # Override metadata with original filename (not temp path)
+                        if "metadata" in parsed_doc:
+                            parsed_doc["metadata"]["filename"] = uploaded_file.name
+                            parsed_doc["metadata"]["file_path"] = uploaded_file.name
+
                         # Index document
                         result = st.session_state.indexer.index_document(parsed_doc)
 

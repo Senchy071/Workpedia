@@ -297,28 +297,82 @@ class QueryEngine:
         doc_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Retrieve relevant chunks."""
-        # Generate query embedding
-        query_embedding = self.embedder.embed(question)
-
-        # Search vector store
-        where = {"doc_id": doc_id} if doc_id else None
-        results = self.vector_store.query(
-            query_embedding=query_embedding,
-            n_results=n_results,
-            where=where,
-        )
-
-        # Format results
         chunks = []
-        for i in range(len(results["ids"])):
-            chunks.append(
-                {
-                    "chunk_id": results["ids"][i],
-                    "content": results["documents"][i],
-                    "metadata": results["metadatas"][i],
-                    "similarity": 1 - results["distances"][i],  # Convert distance to similarity
-                }
+
+        # Check if this is a TOC-related query
+        # Semantic search fails for TOC because the detailed TOC chunk embedding
+        # is diluted across 88+ chapter names, while short chunks with just
+        # "TABLE OF CONTENTS" rank higher. We detect TOC intent and fetch directly.
+        toc_keywords = [
+            "table of contents",
+            "toc",
+            "list of chapters",
+            "all chapters",
+            "main chapters",
+            "chapter list",
+            "what chapters",
+            "show chapters",
+            "document outline",
+            "document structure",
+            "all sections",
+            "main sections",
+        ]
+        question_lower = question.lower()
+        is_toc_query = any(kw in question_lower for kw in toc_keywords)
+
+        if is_toc_query:
+            # Fetch TOC chunk directly by metadata
+            toc_filter = {"chunk_type": "table_of_contents"}
+            if doc_id:
+                toc_filter["doc_id"] = doc_id
+
+            toc_results = self.vector_store._collection.get(
+                where=toc_filter,
+                include=["documents", "metadatas"],
             )
+
+            if toc_results["ids"]:
+                for chunk_id, content, metadata in zip(
+                    toc_results["ids"],
+                    toc_results["documents"],
+                    toc_results["metadatas"],
+                ):
+                    chunks.append(
+                        {
+                            "chunk_id": chunk_id,
+                            "content": content,
+                            "metadata": metadata,
+                            "similarity": 1.0,  # Perfect match for explicit TOC request
+                        }
+                    )
+                logger.info(f"TOC query detected, retrieved {len(chunks)} TOC chunk(s)")
+
+        # Fill remaining slots with semantic search
+        remaining_slots = n_results - len(chunks)
+        if remaining_slots > 0:
+            # Generate query embedding
+            query_embedding = self.embedder.embed(question)
+
+            # Search vector store
+            where = {"doc_id": doc_id} if doc_id else None
+            results = self.vector_store.query(
+                query_embedding=query_embedding,
+                n_results=remaining_slots + len(chunks),  # Get extra to filter duplicates
+                where=where,
+            )
+
+            # Add semantic results, skipping any already added (TOC chunks)
+            existing_ids = {c["chunk_id"] for c in chunks}
+            for i in range(len(results["ids"])):
+                if results["ids"][i] not in existing_ids and len(chunks) < n_results:
+                    chunks.append(
+                        {
+                            "chunk_id": results["ids"][i],
+                            "content": results["documents"][i],
+                            "metadata": results["metadatas"][i],
+                            "similarity": 1 - results["distances"][i],
+                        }
+                    )
 
         return chunks
 

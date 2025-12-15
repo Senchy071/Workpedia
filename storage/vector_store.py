@@ -487,12 +487,27 @@ class DocumentIndexer:
 
                 if sections:
                     toc_lines = [
-                        "# Table of Contents",
+                        "# TABLE OF CONTENTS",
                         "",
-                        "This document contains the following sections and chapters:",
+                        "This is the table of contents. This is the complete table of contents for this document.",
+                        "The table of contents lists all chapters, sections, and topics in this book.",
+                        "Document outline and structure: table of contents showing all main chapters and sections.",
+                        "",
+                        "Complete chapter list and document outline:",
                         "",
                     ]
 
+                    # Sections to exclude from TOC
+                    exclude_patterns = [
+                        r"^(?:LIST\s+OF\s+)?ABBREVIATIONS?$",
+                        r"^LIST\s+OF\s+(?:FIGURES?|TABLES?|ACRONYMS?)$",
+                        r"^(?:REFERENCE|REFERENCES|BIBLIOGRAPHY)$",
+                        r"^ACRONYMS?$",
+                        r"^GLOSSARY$",
+                        r"^INDEX$",
+                    ]
+
+                    included_count = 0
                     for section in sections:
                         level = section.get("level", 1)
                         text = section.get("text", "").strip()
@@ -501,15 +516,35 @@ class DocumentIndexer:
                         if not text:
                             continue
 
+                        # Skip excluded sections
+                        skip = False
+                        for pattern in exclude_patterns:
+                            if re.match(pattern, text, re.IGNORECASE):
+                                logger.debug(f"Excluding section from TOC: {text}")
+                                skip = True
+                                break
+
+                        if skip:
+                            continue
+
+                        # Skip very short section names (likely abbreviations)
+                        if len(text) < 3:
+                            continue
+
+                        # Skip ALL CAPS short entries (likely abbreviations)
+                        if text.isupper() and len(text) < 15:
+                            continue
+
                         indent = "  " * (level - 1)
                         if page:
                             toc_lines.append(f"{indent}- {text} (page {page})")
                         else:
                             toc_lines.append(f"{indent}- {text}")
+                        included_count += 1
 
-                    if len(toc_lines) > 4:
+                    if len(toc_lines) > 8:  # 8 header lines + at least 1 entry
                         toc_content = "\n".join(toc_lines)
-                        sections_count = len(sections)
+                        sections_count = included_count
                         extraction_method = "structure_analyzer"
                         logger.info(
                             f"TOC extracted via StructureAnalyzer: {sections_count} sections"
@@ -567,9 +602,10 @@ class DocumentIndexer:
         import re
 
         # Common TOC header patterns (including markdown headings)
+        # Note: Use specific "TABLE OF CONTENTS" to avoid matching "List of Contents", etc.
         toc_markers = [
-            r"(?:^|\n)\s*#{1,3}\s*(?:TABLE\s+OF\s+CONTENTS|CONTENTS|Table\s+of\s+Contents)\s*\n",
-            r"(?:^|\n)\s*(?:TABLE\s+OF\s+CONTENTS|CONTENTS|Table\s+of\s+Contents|Contents)\s*\n",
+            r"(?:^|\n)\s*#{1,3}\s*(?:TABLE\s+OF\s+CONTENTS|Table\s+of\s+Contents)\s*\n",
+            r"(?:^|\n)\s*(?:TABLE\s+OF\s+CONTENTS|Table\s+of\s+Contents)\s*\n",
         ]
 
         toc_start = None
@@ -577,9 +613,11 @@ class DocumentIndexer:
             match = re.search(pattern, raw_text[:100000], re.IGNORECASE)  # Search first 100k chars
             if match:
                 toc_start = match.end()
+                logger.info(f"Found TOC marker at position {toc_start}")
                 break
 
         if toc_start is None:
+            logger.info("No TOC marker found in document")
             return None, 0
 
         # Extract TOC section (typically ends at a major section or after many lines)
@@ -618,14 +656,26 @@ class DocumentIndexer:
         ]
 
         # Also detect chapter headers like "CHAPTER 1 THE ALLIANCE'S..."
+        # Updated to stop at pipe (for markdown tables with duplicate columns)
         chapter_header_pattern = re.compile(
-            r"^\|?\s*(CHAPTER\s+\d+\s+[A-Z][A-Z\s\-/,]+)", re.IGNORECASE
+            r"^\|?\s*(CHAPTER\s+\d+\s+[A-Z][A-Z\s\-/,]+?)(?:\s*\||$)", re.IGNORECASE
         )
 
         consecutive_non_toc = 0
         seen_entries = set()  # Avoid duplicates
 
+        # Patterns that indicate we've left the TOC section
+        # IMPORTANT: Only match on standalone lines (NOT inside table cells)
+        # Table cells start with |, so we need to make sure line doesn't start with |
+        stop_patterns = [
+            # Markdown headings
+            r"^#{1,3}\s*(?:LIST\s+OF\s+(?:ABBREVIATIONS|FIGURES|TABLES)|ABBREVIATIONS|PREFACE|FOREWORD)",
+            # Plain text (but NOT if it starts with | indicating table cell)
+            r"^(?![\|\s])(?:LIST\s+OF\s+(?:ABBREVIATIONS|FIGURES|TABLES)|ABBREVIATIONS)\s*$",
+        ]
+
         for line in lines:
+            original_line = line
             line = line.strip()
 
             # Skip empty lines and table separators
@@ -636,8 +686,44 @@ class DocumentIndexer:
             if re.match(r"^[\|\s\-:]+$", line):
                 continue
 
+            # Check if we've hit a section that's not the TOC
+            # Only check lines that are NOT in table cells (don't start with |)
+            if not original_line.lstrip().startswith("|"):
+                for stop_pattern in stop_patterns:
+                    if re.match(stop_pattern, line, re.IGNORECASE):
+                        logger.info(f"Stopped TOC extraction at: {line[:50]}")
+                        # Only stop if we already have some entries
+                        if len(toc_entries) >= 3:
+                            return "\n".join(
+                                [
+                                    "# TABLE OF CONTENTS",
+                                    "",
+                                    "This is the table of contents. This is the complete table of contents for this document.",
+                                    "The table of contents lists all chapters, sections, and topics in this book.",
+                                    "Document outline and structure: table of contents showing all main chapters and sections.",
+                                    "",
+                                    "Complete chapter list and document outline:",
+                                    "",
+                                ]
+                                + toc_entries
+                            ), len(toc_entries)
+
+            # For markdown table format, extract first cell only (avoid duplicates)
+            # Table format: | Cell 1 | Cell 2 |
+            # We only want Cell 1
+            processing_line = line
+            if line.startswith("|"):
+                cells = [cell.strip() for cell in line.split("|")]
+                # cells[0] is empty (before first |)
+                # cells[1] is first cell content
+                # cells[2+] might be duplicates or empty
+                if len(cells) > 1 and cells[1]:
+                    processing_line = cells[1]
+                else:
+                    continue  # Skip if first cell is empty
+
             # Check for chapter header first
-            chapter_match = chapter_header_pattern.match(line)
+            chapter_match = chapter_header_pattern.match(processing_line)
             if chapter_match:
                 title = chapter_match.group(1).strip()
                 title = re.sub(r"[\.\s|]+$", "", title)
@@ -650,7 +736,7 @@ class DocumentIndexer:
             # Check if line matches a TOC entry pattern
             matched = False
             for pattern in entry_patterns:
-                match = pattern.match(line)
+                match = pattern.match(processing_line)
                 if match:
                     title = match.group(1).strip()
                     page = match.group(2).strip()
@@ -659,15 +745,18 @@ class DocumentIndexer:
                     title = re.sub(r"[\.\s\|]+$", "", title)
                     title = re.sub(r"\s+", " ", title)
 
-                    # Filter out garbage entries
+                    # Filter out garbage entries and abbreviations
                     if len(title) > 3 and len(title) < 100 and title not in seen_entries:
                         # Skip entries that look like just numbers or symbols
                         if re.search(r"[a-zA-Z]{2,}", title):
-                            seen_entries.add(title)
-                            toc_entries.append(f"- {title} (page {page})")
-                            matched = True
-                            consecutive_non_toc = 0
-                            break
+                            # Skip abbreviations (usually ALL CAPS and short)
+                            # TOC entries are typically sentence case or title case
+                            if not (title.isupper() and len(title) < 15):
+                                seen_entries.add(title)
+                                toc_entries.append(f"- {title} (page {page})")
+                                matched = True
+                                consecutive_non_toc = 0
+                                break
 
             if not matched:
                 consecutive_non_toc += 1
@@ -676,15 +765,21 @@ class DocumentIndexer:
                     break
 
         if len(toc_entries) < 3:
+            logger.info(f"Insufficient TOC entries found: {len(toc_entries)}")
             return None, 0
 
+        logger.info(f"Successfully extracted {len(toc_entries)} TOC entries")
+
         # Build TOC content with semantic keywords for better retrieval
+        # Include many variations of how users might ask for TOC
         toc_lines = [
-            "# TABLE OF CONTENTS - Document Structure and Main Chapters",
+            "# TABLE OF CONTENTS",
             "",
-            "TABLE OF CONTENTS: This is the complete list of main chapters and sections.",
-            "The book/document contains the following chapters, sections, and topics:",
-            "Main chapters, headings, and outline of this indexed book/document:",
+            "This is the table of contents. This is the complete table of contents for this document.",
+            "The table of contents lists all chapters, sections, and topics in this book.",
+            "Document outline and structure: table of contents showing all main chapters and sections.",
+            "",
+            "Complete chapter list and document outline:",
             "",
         ] + toc_entries
 
@@ -707,33 +802,89 @@ class DocumentIndexer:
         Returns:
             List of result dicts with content, metadata, and similarity score
         """
-        where = {"doc_id": doc_id} if doc_id else None
-
-        results = self.vector_store.query_text(
-            query_text=query,
-            embedder=self.embedder,
-            n_results=n_results,
-            where=where,
-        )
-
-        # Format results
         formatted = []
-        for i, (doc_id, content, metadata, distance) in enumerate(
-            zip(
+
+        # Check if this is a TOC-related query
+        # Semantic search fails for TOC because the detailed TOC chunk embedding
+        # is diluted across 88+ chapter names, while short chunks with just
+        # "TABLE OF CONTENTS" rank higher
+        toc_keywords = [
+            "table of contents",
+            "toc",
+            "list of chapters",
+            "all chapters",
+            "main chapters",
+            "chapter list",
+            "what chapters",
+            "show chapters",
+            "document outline",
+            "document structure",
+            "all sections",
+            "main sections",
+        ]
+        query_lower = query.lower()
+        is_toc_query = any(kw in query_lower for kw in toc_keywords)
+
+        if is_toc_query:
+            # Fetch TOC chunk directly by metadata
+            toc_filter = {"chunk_type": "table_of_contents"}
+            if doc_id:
+                toc_filter["doc_id"] = doc_id
+
+            toc_results = self.vector_store._collection.get(
+                where=toc_filter,
+                include=["documents", "metadatas"],
+            )
+
+            if toc_results["ids"]:
+                # Add TOC chunk as first result
+                for i, (chunk_id, content, metadata) in enumerate(
+                    zip(
+                        toc_results["ids"],
+                        toc_results["documents"],
+                        toc_results["metadatas"],
+                    )
+                ):
+                    formatted.append(
+                        {
+                            "rank": len(formatted) + 1,
+                            "chunk_id": chunk_id,
+                            "content": content,
+                            "metadata": metadata,
+                            "similarity": 1.0,  # Perfect match for explicit TOC request
+                        }
+                    )
+                logger.info(f"TOC query detected, retrieved {len(formatted)} TOC chunk(s)")
+
+        # Fill remaining slots with semantic search
+        remaining_slots = n_results - len(formatted)
+        if remaining_slots > 0:
+            where = {"doc_id": doc_id} if doc_id else None
+
+            results = self.vector_store.query_text(
+                query_text=query,
+                embedder=self.embedder,
+                n_results=remaining_slots + len(formatted),  # Get extra to filter duplicates
+                where=where,
+            )
+
+            # Add semantic results, skipping any already added (TOC chunks)
+            existing_ids = {r["chunk_id"] for r in formatted}
+            for chunk_id, content, metadata, distance in zip(
                 results["ids"],
                 results["documents"],
                 results["metadatas"],
                 results["distances"],
-            )
-        ):
-            formatted.append(
-                {
-                    "rank": i + 1,
-                    "chunk_id": doc_id,
-                    "content": content,
-                    "metadata": metadata,
-                    "similarity": 1 - distance,  # Convert distance to similarity
-                }
-            )
+            ):
+                if chunk_id not in existing_ids and len(formatted) < n_results:
+                    formatted.append(
+                        {
+                            "rank": len(formatted) + 1,
+                            "chunk_id": chunk_id,
+                            "content": content,
+                            "metadata": metadata,
+                            "similarity": 1 - distance,
+                        }
+                    )
 
         return formatted
