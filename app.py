@@ -2,6 +2,8 @@
 
 import logging
 import tempfile
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
@@ -9,6 +11,7 @@ import streamlit as st
 from core.parser import DocumentParser
 from core.query_engine import QueryEngine
 from storage.vector_store import DocumentIndexer
+from storage.history_store import HistoryStore
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -100,8 +103,15 @@ if "query_engine" not in st.session_state:
 
             logger.info(f"✓ Ollama validated: {health['message']}")
 
-            # Step 2: Initialize components
-            st.session_state.query_engine = QueryEngine()
+            # Step 2: Initialize history store
+            st.session_state.history_store = HistoryStore()
+            logger.info("✓ History store initialized")
+
+            # Step 3: Initialize components
+            st.session_state.query_engine = QueryEngine(
+                history_store=st.session_state.history_store,
+                auto_save_history=True,
+            )
             st.session_state.indexer = DocumentIndexer(
                 vector_store=st.session_state.query_engine.vector_store,
                 embedder=st.session_state.query_engine.embedder,
@@ -121,6 +131,10 @@ if "chat_history" not in st.session_state:
 
 if "uploaded_docs" not in st.session_state:
     st.session_state.uploaded_docs = []
+
+# Generate session ID for this browser session
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
 
 
 # Header
@@ -218,14 +232,20 @@ with st.sidebar:
 
 
 # Main content area - Tabs
-tab1, tab2, tab3 = st.tabs(["💬 Chat", "📤 Upload Documents", "📊 Statistics"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "💬 Chat",
+    "📤 Upload Documents",
+    "📋 History",
+    "⭐ Bookmarks",
+    "📊 Statistics"
+])
 
 # Tab 1: Chat Interface
 with tab1:
     st.header("Ask Questions About Your Documents")
 
     # Display chat history
-    for chat in st.session_state.chat_history:
+    for i, chat in enumerate(st.session_state.chat_history):
         with st.chat_message("user"):
             st.write(chat["question"])
 
@@ -234,9 +254,9 @@ with tab1:
 
             if chat.get("sources"):
                 with st.expander(f"📑 Sources ({len(chat['sources'])} chunks)"):
-                    for i, src in enumerate(chat["sources"], 1):
+                    for j, src in enumerate(chat["sources"], 1):
                         st.markdown(
-                            f"**Source {i}** - {src['metadata'].get('filename', 'Unknown')}"
+                            f"**Source {j}** - {src['metadata'].get('filename', 'Unknown')}"
                         )
                         st.caption(f"Section: {src['metadata'].get('section', 'N/A')}")
                         st.caption(f"Similarity: {src['similarity']:.2%}")
@@ -246,6 +266,21 @@ with tab1:
                             else src["content"]
                         )
                         st.divider()
+
+            # Bookmark button
+            if chat.get("query_id"):
+                col1, col2 = st.columns([1, 9])
+                with col1:
+                    if st.button("⭐", key=f"bookmark_{i}", help="Bookmark this Q&A"):
+                        try:
+                            bookmark_id = st.session_state.history_store.add_bookmark(
+                                query_id=chat["query_id"],
+                                notes="",
+                                tags=[],
+                            )
+                            st.success("Bookmarked!", icon="⭐")
+                        except Exception as e:
+                            st.error(f"Failed to bookmark: {e}")
 
     # Chat input
     question = st.chat_input("Ask a question about your documents...")
@@ -265,6 +300,8 @@ with tab1:
                             question=question,
                             n_results=n_results,
                             temperature=temperature,
+                            session_id=st.session_state.session_id,
+                            save_to_history=True,
                         )
 
                         st.write(result.answer)
@@ -290,6 +327,7 @@ with tab1:
                                 "question": question,
                                 "answer": result.answer,
                                 "sources": result.sources,
+                                "query_id": result.metadata.get("query_id"),
                             }
                         )
 
@@ -386,8 +424,226 @@ with tab2:
         """
         )
 
-# Tab 3: Statistics
+# Tab 3: History
 with tab3:
+    st.header("📋 Query History")
+    st.markdown("Browse and search your past queries.")
+
+    # Filters row
+    col1, col2, col3 = st.columns([3, 2, 2])
+    with col1:
+        search_text = st.text_input("🔍 Search questions or answers", "", key="history_search")
+    with col2:
+        start_date = st.date_input("From date", value=None, key="history_start")
+    with col3:
+        end_date = st.date_input("To date", value=None, key="history_end")
+
+    # Session filter and limit
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        filter_session = st.checkbox("Current session only", key="history_filter_session")
+    with col2:
+        limit = st.number_input("Show", min_value=10, max_value=200, value=50, step=10, key="history_limit")
+
+    st.divider()
+
+    # Fetch queries
+    try:
+        if search_text:
+            queries = st.session_state.history_store.search_queries(
+                search_text=search_text,
+                limit=limit,
+            )
+        else:
+            queries = st.session_state.history_store.list_queries(
+                limit=limit,
+                session_id=st.session_state.session_id if filter_session else None,
+                start_date=start_date.timestamp() if start_date else None,
+                end_date=end_date.timestamp() if end_date else None,
+            )
+
+        st.info(f"Found {len(queries)} queries")
+
+        # Display queries
+        for query in queries:
+            timestamp_str = datetime.fromtimestamp(query.timestamp).strftime('%Y-%m-%d %H:%M:%S')
+
+            with st.expander(f"🕒 {timestamp_str} - {query.question[:60]}..."):
+                st.markdown(f"**Question:** {query.question}")
+                st.markdown(f"**Answer:**\n\n{query.answer}")
+
+                # Sources
+                if query.sources:
+                    with st.expander(f"📚 Sources ({len(query.sources)})"):
+                        for i, source in enumerate(query.sources, 1):
+                            metadata = source.get("metadata", {})
+                            st.markdown(f"**Source {i}:**")
+                            st.markdown(f"- **File:** {metadata.get('filename', 'Unknown')}")
+                            st.markdown(f"- **Section:** {metadata.get('section', 'N/A')}")
+                            st.markdown(f"- **Similarity:** {source.get('similarity', 0):.2%}")
+                            st.markdown(f"- **Content:** {source.get('content', '')[:200]}...")
+                            st.markdown("---")
+
+                # Metadata
+                if query.metadata:
+                    with st.expander("ℹ️ Metadata"):
+                        st.json(query.metadata)
+
+                # Actions
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    if st.button("⭐ Bookmark", key=f"hist_bm_{query.query_id}"):
+                        try:
+                            bookmark_id = st.session_state.history_store.add_bookmark(
+                                query_id=query.query_id,
+                                notes="",
+                                tags=[],
+                            )
+                            st.success("Bookmarked!")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+                with col2:
+                    if st.button("🗑️ Delete", key=f"hist_del_{query.query_id}"):
+                        st.session_state.history_store.delete_query(query.query_id)
+                        st.success("Deleted!")
+                        st.rerun()
+
+                with col3:
+                    md = st.session_state.history_store.export_query_markdown(query.query_id)
+                    st.download_button(
+                        "📄 Export MD",
+                        md,
+                        file_name=f"query_{query.query_id[:8]}.md",
+                        mime="text/markdown",
+                        key=f"hist_exp_{query.query_id}"
+                    )
+
+                with col4:
+                    try:
+                        pdf_bytes = st.session_state.history_store.export_queries_pdf([query.query_id])
+                        st.download_button(
+                            "📄 Export PDF",
+                            pdf_bytes,
+                            file_name=f"query_{query.query_id[:8]}.pdf",
+                            mime="application/pdf",
+                            key=f"hist_pdf_{query.query_id}"
+                        )
+                    except ImportError:
+                        pass  # reportlab not installed
+
+    except Exception as e:
+        st.error(f"Error loading history: {e}")
+        logger.error(f"History error: {e}", exc_info=True)
+
+# Tab 4: Bookmarks
+with tab4:
+    st.header("⭐ Bookmarks")
+    st.markdown("Your favorite Q&A pairs with notes and tags.")
+
+    # Tag filter
+    try:
+        bookmarks = st.session_state.history_store.list_bookmarks(limit=1000)
+        all_tags = set()
+        for b in bookmarks:
+            all_tags.update(b.tags)
+
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            selected_tags = st.multiselect("🏷️ Filter by tags", sorted(all_tags), key="bookmark_tags")
+        with col2:
+            bm_limit = st.number_input("Show", min_value=10, max_value=200, value=50, step=10, key="bm_limit")
+
+        # Filter bookmarks
+        if selected_tags:
+            filtered = st.session_state.history_store.list_bookmarks(
+                tags=selected_tags,
+                limit=bm_limit
+            )
+        else:
+            filtered = bookmarks[:bm_limit]
+
+        st.info(f"Found {len(filtered)} bookmarks")
+
+        # Display bookmarks
+        for bookmark in filtered:
+            timestamp_str = datetime.fromtimestamp(bookmark.timestamp).strftime('%Y-%m-%d %H:%M:%S')
+            title = bookmark.query.question[:60] if bookmark.query else f"Bookmark {bookmark.bookmark_id[:8]}"
+
+            with st.expander(f"⭐ {timestamp_str} - {title}..."):
+                if bookmark.query:
+                    st.markdown(f"**Question:** {bookmark.query.question}")
+                    st.markdown(f"**Answer:**\n\n{bookmark.query.answer}")
+
+                    # Sources
+                    if bookmark.query.sources:
+                        with st.expander(f"📚 Sources ({len(bookmark.query.sources)})"):
+                            for i, source in enumerate(bookmark.query.sources, 1):
+                                metadata = source.get("metadata", {})
+                                st.markdown(f"**Source {i}:** {metadata.get('filename', 'Unknown')}")
+                                st.markdown(f"- Section: {metadata.get('section', 'N/A')}")
+                                st.markdown(f"- Similarity: {source.get('similarity', 0):.2%}")
+                                st.markdown(f"- {source.get('content', '')[:150]}...")
+                                st.markdown("---")
+
+                st.markdown("---")
+
+                # Editable notes and tags
+                notes = st.text_area(
+                    "📝 Notes",
+                    value=bookmark.notes or "",
+                    key=f"notes_{bookmark.bookmark_id}",
+                    height=100
+                )
+
+                tags_input = st.text_input(
+                    "🏷️ Tags (comma-separated)",
+                    value=", ".join(bookmark.tags),
+                    key=f"tags_{bookmark.bookmark_id}"
+                )
+
+                # Actions
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button("💾 Save Changes", key=f"save_{bookmark.bookmark_id}"):
+                        new_tags = [t.strip() for t in tags_input.split(",") if t.strip()]
+                        success = st.session_state.history_store.update_bookmark(
+                            bookmark.bookmark_id,
+                            notes=notes,
+                            tags=new_tags
+                        )
+                        if success:
+                            st.success("Updated!")
+                            st.rerun()
+                        else:
+                            st.error("Update failed")
+
+                with col2:
+                    if st.button("🗑️ Delete", key=f"del_{bookmark.bookmark_id}"):
+                        success = st.session_state.history_store.delete_bookmark(bookmark.bookmark_id)
+                        if success:
+                            st.success("Deleted!")
+                            st.rerun()
+                        else:
+                            st.error("Delete failed")
+
+                with col3:
+                    if bookmark.query:
+                        md = st.session_state.history_store.export_query_markdown(bookmark.query.query_id)
+                        st.download_button(
+                            "📄 Export",
+                            md,
+                            file_name=f"bookmark_{bookmark.bookmark_id[:8]}.md",
+                            mime="text/markdown",
+                            key=f"exp_{bookmark.bookmark_id}"
+                        )
+
+    except Exception as e:
+        st.error(f"Error loading bookmarks: {e}")
+        logger.error(f"Bookmark error: {e}", exc_info=True)
+
+# Tab 5: Statistics
+with tab5:
     st.header("System Statistics")
 
     try:

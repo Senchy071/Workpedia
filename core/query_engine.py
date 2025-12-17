@@ -2,13 +2,17 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
+from config.config import HISTORY_AUTO_SAVE
 from core.embedder import Embedder
 from core.exceptions import InvalidParameterError, InvalidQueryError
 from core.llm import RAG_SYSTEM_PROMPT, OllamaClient, format_rag_prompt
 from core.validators import validate_document_id, validate_query, validate_query_params
 from storage.vector_store import VectorStore
+
+if TYPE_CHECKING:
+    from storage.history_store import HistoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,8 @@ class QueryEngine:
         llm: Optional[OllamaClient] = None,
         n_results: int = 5,
         temperature: float = 0.7,
+        history_store: Optional["HistoryStore"] = None,
+        auto_save_history: bool = HISTORY_AUTO_SAVE,
     ):
         """
         Initialize query engine.
@@ -74,15 +80,20 @@ class QueryEngine:
             llm: OllamaClient instance (creates default if None)
             n_results: Number of chunks to retrieve
             temperature: LLM sampling temperature
+            history_store: HistoryStore instance for saving queries (optional)
+            auto_save_history: Automatically save queries to history
         """
         self.vector_store = vector_store or VectorStore()
         self.embedder = embedder or Embedder()
         self.llm = llm or OllamaClient()
         self.n_results = n_results
         self.temperature = temperature
+        self.history_store = history_store
+        self.auto_save_history = auto_save_history
 
         logger.info(
-            f"QueryEngine initialized: n_results={n_results}, " f"temperature={temperature}"
+            f"QueryEngine initialized: n_results={n_results}, temperature={temperature}, "
+            f"auto_save_history={auto_save_history}"
         )
 
     def query(
@@ -92,6 +103,8 @@ class QueryEngine:
         doc_id: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        session_id: Optional[str] = None,
+        save_to_history: Optional[bool] = None,
     ) -> QueryResult:
         """
         Query the document collection.
@@ -102,6 +115,8 @@ class QueryEngine:
             doc_id: Filter to specific document
             temperature: LLM temperature (overrides default)
             max_tokens: Maximum tokens for response
+            session_id: Session identifier for grouping queries
+            save_to_history: Save this query to history (None = use auto_save_history setting)
 
         Returns:
             QueryResult with answer and sources
@@ -169,7 +184,7 @@ class QueryEngine:
             for c in chunks
         ]
 
-        return QueryResult(
+        result = QueryResult(
             question=question,
             answer=answer,
             sources=sources,
@@ -179,6 +194,24 @@ class QueryEngine:
                 "model": self.llm.model,
             },
         )
+
+        # Step 4: Save to history if enabled
+        should_save = save_to_history if save_to_history is not None else self.auto_save_history
+        if should_save and self.history_store:
+            try:
+                query_id = self.history_store.add_query(
+                    question=result.question,
+                    answer=result.answer,
+                    sources=result.sources,
+                    metadata=result.metadata,
+                    session_id=session_id,
+                )
+                result.metadata["query_id"] = query_id
+                logger.debug(f"Saved query to history: {query_id}")
+            except Exception as e:
+                logger.warning(f"Failed to save query to history: {e}")
+
+        return result
 
     def query_stream(
         self,

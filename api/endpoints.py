@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, Response
 from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -24,6 +24,8 @@ from core.exceptions import (
     ValidationError,
     VectorStoreQueryError,
     WorkpediaError,
+    QueryNotFoundError,
+    BookmarkNotFoundError,
     format_exception_chain,
 )
 from core.llm import OllamaClient
@@ -38,18 +40,20 @@ from core.validators import (
     validate_query,
 )
 from storage.vector_store import DocumentIndexer
+from storage.history_store import HistoryStore
 
 logger = logging.getLogger(__name__)
 
 # Global instances (initialized on startup)
 query_engine: Optional[QueryEngine] = None
 document_indexer: Optional[DocumentIndexer] = None
+history_store: Optional[HistoryStore] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup."""
-    global query_engine, document_indexer
+    global query_engine, document_indexer, history_store
 
     logger.info("Initializing Workpedia API...")
 
@@ -85,8 +89,15 @@ async def lifespan(app: FastAPI):
 
         logger.info(f"✓ Ollama connection validated: {health['message']}")
 
-        # Step 2: Initialize components
-        query_engine = QueryEngine()
+        # Step 2: Initialize history store
+        history_store = HistoryStore()
+        logger.info("✓ History store initialized")
+
+        # Step 3: Initialize components
+        query_engine = QueryEngine(
+            history_store=history_store,
+            auto_save_history=True,
+        )
         document_indexer = DocumentIndexer(
             vector_store=query_engine.vector_store,
             embedder=query_engine.embedder,
@@ -96,6 +107,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"  - Vector Store: {query_engine.vector_store.count} chunks indexed")
         logger.info(f"  - LLM: {health['model_name']}")
         logger.info(f"  - Embedder: {query_engine.embedder.model_name}")
+        logger.info(f"  - History: Auto-save enabled")
 
     except Exception as e:
         logger.error(f"Failed to initialize Workpedia API: {e}")
@@ -482,6 +494,44 @@ class SearchResult(BaseModel):
     similarity: float
 
 
+class HistoryQueryResponse(BaseModel):
+    """History query response."""
+
+    query_id: str
+    session_id: Optional[str]
+    timestamp: float
+    question: str
+    answer: str
+    sources: List[dict]
+    metadata: dict
+
+
+class BookmarkResponse(BaseModel):
+    """Bookmark response."""
+
+    bookmark_id: str
+    query_id: str
+    timestamp: float
+    notes: Optional[str]
+    tags: List[str]
+    query: Optional[HistoryQueryResponse] = None
+
+
+class CreateBookmarkRequest(BaseModel):
+    """Create bookmark request."""
+
+    query_id: str = Field(..., description="Query ID to bookmark")
+    notes: Optional[str] = Field(None, description="Notes about this bookmark")
+    tags: List[str] = Field(default_factory=list, description="Tags for organization")
+
+
+class UpdateBookmarkRequest(BaseModel):
+    """Update bookmark request."""
+
+    notes: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
 # =============================================================================
 # Query Endpoints
 # =============================================================================
@@ -826,6 +876,293 @@ async def get_resilience_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# =============================================================================
+# History Endpoints
+# =============================================================================
+
+
+@app.get("/history", response_model=List[HistoryQueryResponse], tags=["History"])
+async def list_history(
+    limit: int = Query(50, ge=1, le=200, description="Maximum queries to return"),
+    offset: int = Query(0, ge=0, description="Number of queries to skip"),
+    search: Optional[str] = Query(None, description="Search text in questions/answers"),
+    session_id: Optional[str] = Query(None, description="Filter by session ID"),
+    start_date: Optional[float] = Query(None, description="Unix timestamp - start of date range"),
+    end_date: Optional[float] = Query(None, description="Unix timestamp - end of date range"),
+):
+    """
+    List query history with filters.
+
+    Supports:
+    - Pagination (limit, offset)
+    - Text search (question/answer)
+    - Session filtering
+    - Date range filtering
+    """
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        if search:
+            queries = history_store.search_queries(
+                search_text=search,
+                limit=limit,
+                offset=offset,
+            )
+        else:
+            queries = history_store.list_queries(
+                limit=limit,
+                offset=offset,
+                session_id=session_id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+        return [HistoryQueryResponse(**q.to_dict()) for q in queries]
+
+    except Exception as e:
+        logger.error(f"List history failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/history/{query_id}", response_model=HistoryQueryResponse, tags=["History"])
+async def get_history_query(query_id: str):
+    """Get specific query from history."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        query = history_store.get_query(query_id)
+        if not query:
+            raise HTTPException(status_code=404, detail=f"Query not found: {query_id}")
+
+        return HistoryQueryResponse(**query.to_dict())
+
+    except HTTPException:
+        raise
+    except QueryNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Get history query failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/history/{query_id}", tags=["History"])
+async def delete_history_query(query_id: str):
+    """Delete query from history."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        deleted = history_store.delete_query(query_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Query not found: {query_id}")
+
+        return {"status": "deleted", "query_id": query_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete history query failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/history/export/markdown", tags=["History"])
+async def export_history_markdown(
+    query_ids: Optional[List[str]] = Query(None, description="Query IDs to export (or all recent if not specified)"),
+    title: str = Query("Workpedia Query History", description="Document title"),
+):
+    """Export query history as Markdown."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        if query_ids:
+            markdown = history_store.export_queries_markdown(query_ids, title)
+        else:
+            # Export all recent queries
+            queries = history_store.list_queries(limit=100)
+            query_ids = [q.query_id for q in queries]
+            markdown = history_store.export_queries_markdown(query_ids, title)
+
+        return Response(content=markdown, media_type="text/markdown")
+
+    except Exception as e:
+        logger.error(f"Export markdown failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/history/export/json", tags=["History"])
+async def export_history_json(
+    query_ids: Optional[List[str]] = Query(None, description="Query IDs to export (or all recent if not specified)"),
+    include_sources: bool = Query(True, description="Include source data in export"),
+):
+    """Export query history as JSON."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        json_data = history_store.export_queries_json(query_ids, include_sources)
+        return Response(content=json_data, media_type="application/json")
+
+    except Exception as e:
+        logger.error(f"Export JSON failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/history/export/pdf", tags=["History"])
+async def export_history_pdf(
+    query_ids: Optional[List[str]] = Query(None, description="Query IDs to export (or all recent if not specified)"),
+    title: str = Query("Workpedia Query History", description="Document title"),
+):
+    """Export query history as PDF."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        if query_ids:
+            pdf_bytes = history_store.export_queries_pdf(query_ids, title)
+        else:
+            # Export all recent queries
+            queries = history_store.list_queries(limit=100)
+            query_ids = [q.query_id for q in queries]
+            pdf_bytes = history_store.export_queries_pdf(query_ids, title)
+
+        return Response(content=pdf_bytes, media_type="application/pdf")
+
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="PDF export requires reportlab. Install with: pip install reportlab",
+        )
+    except Exception as e:
+        logger.error(f"Export PDF failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Bookmark Endpoints
+# =============================================================================
+
+
+@app.get("/bookmarks", response_model=List[BookmarkResponse], tags=["Bookmarks"])
+async def list_bookmarks(
+    tags: Optional[List[str]] = Query(None, description="Filter by tags (OR condition)"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum bookmarks to return"),
+    offset: int = Query(0, ge=0, description="Number of bookmarks to skip"),
+):
+    """List bookmarks with optional tag filtering."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        bookmarks = history_store.list_bookmarks(tags=tags, limit=limit, offset=offset)
+        return [BookmarkResponse(**b.to_dict()) for b in bookmarks]
+
+    except Exception as e:
+        logger.error(f"List bookmarks failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/bookmarks", response_model=BookmarkResponse, tags=["Bookmarks"])
+async def create_bookmark(request: CreateBookmarkRequest):
+    """Create a bookmark for a query."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        bookmark_id = history_store.add_bookmark(
+            query_id=request.query_id,
+            notes=request.notes,
+            tags=request.tags,
+        )
+
+        bookmark = history_store.get_bookmark(bookmark_id)
+        if not bookmark:
+            raise HTTPException(status_code=500, detail="Failed to retrieve created bookmark")
+
+        return BookmarkResponse(**bookmark.to_dict())
+
+    except QueryNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Create bookmark failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/bookmarks/{bookmark_id}", response_model=BookmarkResponse, tags=["Bookmarks"])
+async def get_bookmark(bookmark_id: str):
+    """Get specific bookmark."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        bookmark = history_store.get_bookmark(bookmark_id)
+        if not bookmark:
+            raise HTTPException(status_code=404, detail=f"Bookmark not found: {bookmark_id}")
+
+        return BookmarkResponse(**bookmark.to_dict())
+
+    except HTTPException:
+        raise
+    except BookmarkNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Get bookmark failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/bookmarks/{bookmark_id}", response_model=BookmarkResponse, tags=["Bookmarks"])
+async def update_bookmark(bookmark_id: str, request: UpdateBookmarkRequest):
+    """Update bookmark notes or tags."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        updated = history_store.update_bookmark(
+            bookmark_id=bookmark_id,
+            notes=request.notes,
+            tags=request.tags,
+        )
+
+        if not updated:
+            raise HTTPException(status_code=404, detail=f"Bookmark not found: {bookmark_id}")
+
+        bookmark = history_store.get_bookmark(bookmark_id)
+        return BookmarkResponse(**bookmark.to_dict())
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update bookmark failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/bookmarks/{bookmark_id}", tags=["Bookmarks"])
+async def delete_bookmark(bookmark_id: str):
+    """Delete a bookmark."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        deleted = history_store.delete_bookmark(bookmark_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Bookmark not found: {bookmark_id}")
+
+        return {"status": "deleted", "bookmark_id": bookmark_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete bookmark failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# System Endpoints
+# =============================================================================
+
+
 @app.get("/", tags=["System"])
 async def root():
     """API root - basic info."""
@@ -835,6 +1172,8 @@ async def root():
         "docs": "/docs",
         "health": "/health",
         "resilience": "/resilience",
+        "history": "/history",
+        "bookmarks": "/bookmarks",
     }
 
 

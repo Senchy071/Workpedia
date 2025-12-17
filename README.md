@@ -11,6 +11,9 @@ Workpedia is a privacy-focused RAG application that processes complex documents 
 - **Vector Storage**: ChromaDB for efficient similarity search
 - **Embeddings**: sentence-transformers/all-mpnet-base-v2 for high-quality semantic representations
 - **LLM Generation**: Ollama + Mistral 7B for local, privacy-preserving text generation
+- **Query History**: Persistent storage of all queries with full context and sources
+- **Bookmarks**: Organize favorite Q&A pairs with notes and tags
+- **Export**: Export queries and answers to Markdown, JSON, or PDF formats
 
 ## Project Structure
 
@@ -40,7 +43,8 @@ workpedia/
 │   ├── html_processor.py
 │   └── image_processor.py
 ├── storage/             # Vector store and metadata
-│   └── vector_store.py  # ChromaDB vector store interface
+│   ├── vector_store.py  # ChromaDB vector store interface
+│   └── history_store.py # Query history and bookmarks storage
 ├── api/                 # API endpoints and query interface
 │   └── endpoints.py     # FastAPI REST API
 ├── app.py               # Streamlit web UI
@@ -247,6 +251,17 @@ API Endpoints:
 - `POST /documents/upload` - Upload and index a document
 - `GET /documents` - List all indexed documents
 - `DELETE /documents/{doc_id}` - Delete a document
+- `GET /history` - List query history with filters
+- `GET /history/{query_id}` - Get specific query
+- `DELETE /history/{query_id}` - Delete query from history
+- `GET /history/export/markdown` - Export queries as Markdown
+- `GET /history/export/json` - Export queries as JSON
+- `GET /history/export/pdf` - Export queries as PDF
+- `GET /bookmarks` - List bookmarks with tag filtering
+- `POST /bookmarks` - Create a bookmark
+- `GET /bookmarks/{bookmark_id}` - Get specific bookmark
+- `PUT /bookmarks/{bookmark_id}` - Update bookmark
+- `DELETE /bookmarks/{bookmark_id}` - Delete bookmark
 - `GET /health` - Health check
 - `GET /stats` - System statistics
 

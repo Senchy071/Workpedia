@@ -76,3 +76,9 @@ TIMEOUT_HEALTH_CHECK = 5.0  # Timeout for health checks
 TIMEOUT_LIST_MODELS = 10.0  # Timeout for listing models
 TIMEOUT_GENERATE = 120.0  # Timeout for non-streaming generation
 TIMEOUT_GENERATE_STREAM = 180.0  # Timeout for streaming generation
+
+# History and bookmarks settings
+HISTORY_DB_DIR = DATA_DIR / "history_db"
+HISTORY_DB_PATH = str(HISTORY_DB_DIR / "history.sqlite3")
+HISTORY_AUTO_SAVE = True  # Auto-save all queries
+HISTORY_SESSION_ENABLED = True  # Track session IDs

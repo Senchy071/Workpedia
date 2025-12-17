@@ -344,6 +344,48 @@ class QueryExecutionError(QueryError):
 
 
 # =============================================================================
+# History Store Errors
+# =============================================================================
+
+class HistoryStoreError(WorkpediaError):
+    """Base class for history store errors."""
+    pass
+
+
+class HistoryDatabaseError(HistoryStoreError):
+    """Database operation failed."""
+
+    def __init__(self, operation: str, reason: Optional[str] = None):
+        message = f"History database {operation} failed"
+        if reason:
+            message += f" - {reason}"
+        super().__init__(
+            message,
+            context={"operation": operation, "reason": reason}
+        )
+
+
+class QueryNotFoundError(HistoryStoreError):
+    """Query not found in history."""
+
+    def __init__(self, query_id: str):
+        super().__init__(
+            f"Query not found in history: {query_id}",
+            context={"query_id": query_id}
+        )
+
+
+class BookmarkNotFoundError(HistoryStoreError):
+    """Bookmark not found."""
+
+    def __init__(self, bookmark_id: str):
+        super().__init__(
+            f"Bookmark not found: {bookmark_id}",
+            context={"bookmark_id": bookmark_id}
+        )
+
+
+# =============================================================================
 # Configuration Errors
 # =============================================================================
 
