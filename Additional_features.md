@@ -11,11 +11,11 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 | 1 | Query History & Bookmarks | ✅ Complete | `storage/history_store.py` |
 | 2 | Answer Confidence Scoring | ✅ Complete | `core/confidence.py` |
 | 3 | Document Summaries | ✅ Complete | `core/summarizer.py` |
-| 4 | Export Functionality | ⏳ Pending | - |
+| 4 | Export Functionality | ✅ Complete | `storage/history_store.py`, `api/endpoints.py` |
 | 5 | Query Suggestions | ⏳ Pending | - |
 | 6 | Hybrid Search | ⏳ Pending | - |
 
-**Progress**: 3/6 HIGH PRIORITY features implemented
+**Progress**: 4/6 HIGH PRIORITY features implemented
 
 ---
 
@@ -80,14 +80,27 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 
 ---
 
-### 4. Export Functionality
+### 4. Export Functionality ✅ IMPLEMENTED
 **Why**: Users want to save and share results
 
 **Features:**
-- Export single Q&A to Markdown/PDF
-- Export entire chat session
-- Include sources and metadata
-- Command: "Export this conversation"
+- Export query history to Markdown/JSON/PDF
+- Export bookmarks to Markdown/JSON
+- Includes confidence scores in exports
+- Proper Content-Disposition headers for file downloads
+- Date-stamped filenames
+
+**API Endpoints:**
+- `GET /history/export/markdown` - Export queries as Markdown
+- `GET /history/export/json` - Export queries as JSON
+- `GET /history/export/pdf` - Export queries as PDF
+- `GET /bookmarks/export/markdown` - Export bookmarks as Markdown
+- `GET /bookmarks/export/json` - Export bookmarks as JSON
+
+**Implementation:**
+- Enhanced `storage/history_store.py` with confidence scores in exports
+- Added bookmark export methods (`export_bookmarks_markdown`, `export_bookmarks_json`)
+- Updated API endpoints with download headers
 
 **Effort**: Low | **Impact**: Medium
 

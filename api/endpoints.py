@@ -4,28 +4,29 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config.config import INPUT_DIR
 from core.exceptions import (
+    BookmarkNotFoundError,
     DocumentNotFoundError,
     DocumentParsingError,
     IndexingError,
     OllamaConnectionError,
     OllamaGenerationError,
     OllamaTimeoutError,
+    QueryNotFoundError,
     UnsupportedFormatError,
     ValidationError,
     VectorStoreQueryError,
     WorkpediaError,
-    QueryNotFoundError,
-    BookmarkNotFoundError,
     format_exception_chain,
 )
 from core.llm import OllamaClient
@@ -39,8 +40,8 @@ from core.validators import (
     validate_file_path,
     validate_query,
 )
-from storage.vector_store import DocumentIndexer
 from storage.history_store import HistoryStore
+from storage.vector_store import DocumentIndexer
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"  - Vector Store: {query_engine.vector_store.count} chunks indexed")
         logger.info(f"  - LLM: {health['model_name']}")
         logger.info(f"  - Embedder: {query_engine.embedder.model_name}")
-        logger.info(f"  - History: Auto-save enabled")
+        logger.info("  - History: Auto-save enabled")
 
     except Exception as e:
         logger.error(f"Failed to initialize Workpedia API: {e}")
@@ -1056,10 +1057,12 @@ async def delete_history_query(query_id: str):
 
 @app.get("/history/export/markdown", tags=["History"])
 async def export_history_markdown(
-    query_ids: Optional[List[str]] = Query(None, description="Query IDs to export (or all recent if not specified)"),
+    query_ids: Optional[List[str]] = Query(
+        None, description="Query IDs to export (or all recent)"
+    ),
     title: str = Query("Workpedia Query History", description="Document title"),
 ):
-    """Export query history as Markdown."""
+    """Export query history as Markdown with confidence scores."""
     if history_store is None:
         raise HTTPException(status_code=503, detail="History store not initialized")
 
@@ -1072,7 +1075,9 @@ async def export_history_markdown(
             query_ids = [q.query_id for q in queries]
             markdown = history_store.export_queries_markdown(query_ids, title)
 
-        return Response(content=markdown, media_type="text/markdown")
+        filename = f"workpedia_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        return Response(content=markdown, media_type="text/markdown", headers=headers)
 
     except Exception as e:
         logger.error(f"Export markdown failed: {e}")
@@ -1081,16 +1086,20 @@ async def export_history_markdown(
 
 @app.get("/history/export/json", tags=["History"])
 async def export_history_json(
-    query_ids: Optional[List[str]] = Query(None, description="Query IDs to export (or all recent if not specified)"),
+    query_ids: Optional[List[str]] = Query(
+        None, description="Query IDs to export (or all recent)"
+    ),
     include_sources: bool = Query(True, description="Include source data in export"),
 ):
-    """Export query history as JSON."""
+    """Export query history as JSON with confidence scores."""
     if history_store is None:
         raise HTTPException(status_code=503, detail="History store not initialized")
 
     try:
         json_data = history_store.export_queries_json(query_ids, include_sources)
-        return Response(content=json_data, media_type="application/json")
+        filename = f"workpedia_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        return Response(content=json_data, media_type="application/json", headers=headers)
 
     except Exception as e:
         logger.error(f"Export JSON failed: {e}")
@@ -1099,10 +1108,12 @@ async def export_history_json(
 
 @app.get("/history/export/pdf", tags=["History"])
 async def export_history_pdf(
-    query_ids: Optional[List[str]] = Query(None, description="Query IDs to export (or all recent if not specified)"),
+    query_ids: Optional[List[str]] = Query(
+        None, description="Query IDs to export (or all recent)"
+    ),
     title: str = Query("Workpedia Query History", description="Document title"),
 ):
-    """Export query history as PDF."""
+    """Export query history as PDF with confidence scores."""
     if history_store is None:
         raise HTTPException(status_code=503, detail="History store not initialized")
 
@@ -1115,7 +1126,9 @@ async def export_history_pdf(
             query_ids = [q.query_id for q in queries]
             pdf_bytes = history_store.export_queries_pdf(query_ids, title)
 
-        return Response(content=pdf_bytes, media_type="application/pdf")
+        filename = f"workpedia_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
     except ImportError:
         raise HTTPException(
@@ -1242,6 +1255,50 @@ async def delete_bookmark(bookmark_id: str):
         raise
     except Exception as e:
         logger.error(f"Delete bookmark failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/bookmarks/export/markdown", tags=["Bookmarks"])
+async def export_bookmarks_markdown(
+    bookmark_ids: Optional[List[str]] = Query(
+        None, description="Bookmark IDs to export (or all if not specified)"
+    ),
+    title: str = Query("Workpedia Bookmarks", description="Document title"),
+):
+    """Export bookmarks as Markdown with Q&A content and confidence scores."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        markdown = history_store.export_bookmarks_markdown(bookmark_ids, title)
+        filename = f"workpedia_bookmarks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        return Response(content=markdown, media_type="text/markdown", headers=headers)
+
+    except Exception as e:
+        logger.error(f"Export bookmarks markdown failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/bookmarks/export/json", tags=["Bookmarks"])
+async def export_bookmarks_json(
+    bookmark_ids: Optional[List[str]] = Query(
+        None, description="Bookmark IDs to export (or all if not specified)"
+    ),
+    include_query: bool = Query(True, description="Include full query data"),
+):
+    """Export bookmarks as JSON."""
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="History store not initialized")
+
+    try:
+        json_data = history_store.export_bookmarks_json(bookmark_ids, include_query)
+        filename = f"workpedia_bookmarks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        return Response(content=json_data, media_type="application/json", headers=headers)
+
+    except Exception as e:
+        logger.error(f"Export bookmarks JSON failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

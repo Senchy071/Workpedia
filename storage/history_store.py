@@ -43,7 +43,7 @@ import logging
 import sqlite3
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -52,7 +52,6 @@ from config.config import HISTORY_DB_PATH
 from core.exceptions import (
     HistoryDatabaseError,
     QueryNotFoundError,
-    BookmarkNotFoundError,
 )
 
 logger = logging.getLogger(__name__)
@@ -773,7 +772,19 @@ class HistoryStore:
 ---
 """
 
+        # Confidence score (if available)
         if query.metadata:
+            confidence = query.metadata.get("confidence")
+            if confidence:
+                level = confidence.get("level", "unknown")
+                score = confidence.get("overall_score", 0)
+                emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(level, "⚪")
+                md += "\n## Confidence\n"
+                md += f"{emoji} **{level.capitalize()}** ({score:.0%})\n\n"
+                md += f"- Similarity: {confidence.get('similarity_score', 0):.0%}\n"
+                md += f"- Agreement: {confidence.get('agreement_score', 0):.0%}\n"
+                md += f"- Coverage: {confidence.get('coverage_score', 0):.0%}\n"
+
             md += "\n## Metadata\n"
             md += f"- **Chunks Retrieved:** {query.metadata.get('chunks_retrieved', 'N/A')}\n"
             md += f"- **Model:** {query.metadata.get('model', 'N/A')}\n"
@@ -877,19 +888,18 @@ class HistoryStore:
             ImportError: If reportlab not installed
         """
         try:
+            from io import BytesIO
+
             from reportlab.lib import colors
             from reportlab.lib.pagesizes import letter
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
             from reportlab.lib.units import inch
             from reportlab.platypus import (
-                SimpleDocTemplate,
-                Paragraph,
-                Spacer,
                 PageBreak,
-                Table,
-                TableStyle,
+                Paragraph,
+                SimpleDocTemplate,
+                Spacer,
             )
-            from io import BytesIO
         except ImportError:
             raise ImportError(
                 "reportlab is required for PDF export. Install with: pip install reportlab"
@@ -936,6 +946,32 @@ class HistoryStore:
                 story.append(Paragraph(query.answer, styles["Normal"]))
                 story.append(Spacer(1, 0.2 * inch))
 
+                # Confidence (if available)
+                if query.metadata:
+                    confidence = query.metadata.get("confidence")
+                    if confidence:
+                        level = confidence.get("level", "unknown")
+                        score = confidence.get("overall_score", 0)
+                        emoji_map = {"high": "HIGH", "medium": "MEDIUM", "low": "LOW"}
+                        color_map = {
+                            "high": colors.HexColor("#27ae60"),
+                            "medium": colors.HexColor("#f39c12"),
+                            "low": colors.HexColor("#e74c3c"),
+                        }
+                        conf_style = ParagraphStyle(
+                            "Confidence",
+                            parent=styles["Normal"],
+                            textColor=color_map.get(level, colors.black),
+                        )
+                        conf_text = f"""
+                        <b>Confidence:</b> {emoji_map.get(level, 'UNKNOWN')} ({score:.0%})<br/>
+                        Similarity: {confidence.get('similarity_score', 0):.0%} |
+                        Agreement: {confidence.get('agreement_score', 0):.0%} |
+                        Coverage: {confidence.get('coverage_score', 0):.0%}
+                        """
+                        story.append(Paragraph(conf_text, conf_style))
+                        story.append(Spacer(1, 0.2 * inch))
+
                 # Sources
                 if query.sources:
                     story.append(Paragraph(f"<b>Sources ({len(query.sources)}):</b>", styles["Heading3"]))
@@ -964,6 +1000,108 @@ class HistoryStore:
         buffer.close()
 
         return pdf_bytes
+
+    def export_bookmarks_markdown(
+        self,
+        bookmark_ids: Optional[List[str]] = None,
+        title: str = "Workpedia Bookmarks",
+    ) -> str:
+        """
+        Export bookmarks as Markdown document.
+
+        Args:
+            bookmark_ids: List of bookmark IDs (or None for all)
+            title: Document title
+
+        Returns:
+            Markdown string
+        """
+        if bookmark_ids:
+            bookmarks = [self.get_bookmark(bid) for bid in bookmark_ids]
+            bookmarks = [b for b in bookmarks if b is not None]
+        else:
+            bookmarks = self.list_bookmarks(limit=1000)
+
+        md = f"# {title}\n\n"
+        md += f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        md += f"**Total Bookmarks:** {len(bookmarks)}\n\n"
+        md += "---\n\n"
+
+        for i, bookmark in enumerate(bookmarks, 1):
+            timestamp_str = datetime.fromtimestamp(bookmark.timestamp).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+            md += f"## Bookmark {i}\n\n"
+            md += f"**Created:** {timestamp_str}\n"
+
+            if bookmark.tags:
+                md += f"**Tags:** {', '.join(bookmark.tags)}\n"
+
+            if bookmark.notes:
+                md += f"**Notes:** {bookmark.notes}\n"
+
+            md += "\n"
+
+            # Include the bookmarked query
+            if bookmark.query:
+                md += f"### Question\n{bookmark.query.question}\n\n"
+                md += f"### Answer\n{bookmark.query.answer}\n\n"
+
+                # Confidence
+                if bookmark.query.metadata:
+                    confidence = bookmark.query.metadata.get("confidence")
+                    if confidence:
+                        level = confidence.get("level", "unknown")
+                        score = confidence.get("overall_score", 0)
+                        emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(
+                            level, "⚪"
+                        )
+                        md += "### Confidence\n"
+                        md += f"{emoji} **{level.capitalize()}** ({score:.0%})\n\n"
+
+            md += "---\n\n"
+
+        return md
+
+    def export_bookmarks_json(
+        self,
+        bookmark_ids: Optional[List[str]] = None,
+        include_query: bool = True,
+    ) -> str:
+        """
+        Export bookmarks as JSON.
+
+        Args:
+            bookmark_ids: List of bookmark IDs (or None for all)
+            include_query: Include full query data
+
+        Returns:
+            JSON string
+        """
+        if bookmark_ids:
+            bookmarks = [self.get_bookmark(bid) for bid in bookmark_ids]
+            bookmarks = [b for b in bookmarks if b is not None]
+        else:
+            bookmarks = self.list_bookmarks(limit=1000)
+
+        export_data = {
+            "export_metadata": {
+                "title": "Workpedia Bookmarks",
+                "exported_at": datetime.now().isoformat(),
+                "total_bookmarks": len(bookmarks),
+                "include_query": include_query,
+            },
+            "bookmarks": [],
+        }
+
+        for bookmark in bookmarks:
+            bookmark_dict = bookmark.to_dict()
+            if not include_query:
+                bookmark_dict.pop("query", None)
+            export_data["bookmarks"].append(bookmark_dict)
+
+        return json.dumps(export_data, indent=2)
 
     # =============================================================================
     # Statistics and Utilities
