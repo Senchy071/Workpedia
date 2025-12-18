@@ -13,10 +13,12 @@ This guide will help you get started with Workpedia and make the most of its fea
 3. [Using the Web Interface](#using-the-web-interface)
 4. [Indexing Documents](#indexing-documents)
 5. [Querying Documents](#querying-documents)
-6. [Configuration](#configuration)
-7. [Advanced Features](#advanced-features)
-8. [Troubleshooting](#troubleshooting)
-9. [Best Practices](#best-practices)
+6. [Understanding Confidence Scores](#understanding-confidence-scores)
+7. [Document Summaries](#document-summaries)
+8. [Configuration](#configuration)
+9. [Advanced Features](#advanced-features)
+10. [Troubleshooting](#troubleshooting)
+11. [Best Practices](#best-practices)
 
 ---
 
@@ -358,6 +360,166 @@ What is the document structure?
 - **80-95% similarity:** Highly relevant
 - **70-80% similarity:** Somewhat relevant
 - **<70% similarity:** May be tangentially related
+
+---
+
+## Understanding Confidence Scores
+
+Every answer from Workpedia includes a **confidence score** that indicates how reliable the answer is based on the quality of retrieved sources.
+
+### Confidence Levels
+
+| Level | Indicator | Score Range | What It Means |
+|-------|-----------|-------------|---------------|
+| **High** | 🟢 | 75-100% | Strong evidence from multiple relevant sources |
+| **Medium** | 🟡 | 50-74% | Moderate evidence, some uncertainty |
+| **Low** | 🔴 | 0-49% | Limited or weak evidence, use with caution |
+
+### How Confidence Is Calculated
+
+The confidence score combines three factors:
+
+1. **Similarity Score (50% weight)**
+   - How closely do retrieved chunks match your query?
+   - Higher similarity = more relevant sources
+
+2. **Agreement Score (30% weight)**
+   - Do multiple sources say the same thing?
+   - Sources from different documents agreeing = higher confidence
+
+3. **Coverage Score (20% weight)**
+   - Were enough relevant sources found?
+   - Finding all requested chunks = better coverage
+
+### Interpreting Results
+
+**High Confidence (🟢)**
+- Answer is well-supported by multiple relevant sources
+- Sources agree with each other
+- You can trust this answer
+
+**Medium Confidence (🟡)**
+- Answer has some support but may be incomplete
+- Sources might not fully agree
+- Consider asking follow-up questions
+
+**Low Confidence (🔴)**
+- Limited relevant information found
+- Sources may be tangentially related
+- The answer might be speculative
+- Consider rephrasing your question or adding more documents
+
+### API Response
+
+Query responses include a confidence object:
+
+```json
+{
+  "answer": "...",
+  "confidence": {
+    "overall_score": 0.85,
+    "level": "high",
+    "similarity_score": 0.92,
+    "agreement_score": 0.78,
+    "coverage_score": 0.80,
+    "factors": {
+      "chunk_count": 5,
+      "unique_documents": 3,
+      "top_similarities": [0.95, 0.89, 0.85]
+    }
+  }
+}
+```
+
+---
+
+## Document Summaries
+
+Workpedia automatically generates **executive summaries** when you index documents, giving you a quick overview before you start querying.
+
+### How It Works
+
+When a document is indexed:
+1. Workpedia extracts key content (sections, text)
+2. The LLM generates 3-7 bullet point summaries
+3. Summary is stored as a searchable chunk
+4. Summary is automatically retrieved for overview queries
+
+### Accessing Summaries
+
+#### Via Query
+
+Simply ask about the document's content:
+
+```text
+What is in this document?
+What's this document about?
+Give me a document summary
+What are the main topics?
+Tell me about this document
+```
+
+Workpedia automatically detects these queries and returns the summary.
+
+#### Via API
+
+```bash
+# Get summary for a specific document
+curl http://localhost:8000/documents/{doc_id}/summary
+```
+
+Response:
+```json
+{
+  "doc_id": "report_2024_abc123",
+  "summary": "# DOCUMENT SUMMARY\n\n1. First key point...",
+  "bullets": [
+    "First key point about the document",
+    "Second important finding",
+    "Third main topic covered",
+    "Fourth relevant detail",
+    "Fifth concluding point"
+  ],
+  "metadata": {
+    "filename": "annual_report_2024.pdf",
+    "num_bullets": 5,
+    "summary_model": "mistral"
+  }
+}
+```
+
+#### Via Python
+
+```python
+from storage.vector_store import VectorStore
+
+store = VectorStore()
+summary = store.get_document_summary("doc_id_here")
+print(summary["content"])
+```
+
+### Configuration
+
+Edit `config/config.py` to customize summaries:
+
+```python
+SUMMARY_ENABLED = True       # Enable/disable auto-summarization
+SUMMARY_MAX_BULLETS = 5      # Number of bullet points (3-7)
+SUMMARY_MAX_INPUT_CHARS = 15000  # Max chars sent to LLM
+SUMMARY_TEMPERATURE = 0.3    # Lower = more focused summaries
+```
+
+### When Summaries Are Generated
+
+- **Automatically**: During document indexing (if enabled)
+- **Indexing options**: `generate_summary=True/False` to override default
+
+### Tips
+
+- Summaries work best with well-structured documents
+- Very short documents may not generate useful summaries
+- Summaries are searchable - they help with overview queries
+- Re-indexing a document regenerates its summary
 
 ---
 
@@ -956,12 +1118,16 @@ tail -f logs/workpedia.log
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/query` | POST | Ask question |
+| `/query` | POST | Ask question (includes confidence) |
 | `/search` | POST | Similarity search |
 | `/documents` | GET | List documents |
-| `/documents/index` | POST | Index from path |
-| `/documents/upload` | POST | Upload & index |
+| `/documents/index` | POST | Index from path (generates summary) |
+| `/documents/upload` | POST | Upload & index (generates summary) |
+| `/documents/{id}` | GET | Get document details |
+| `/documents/{id}/summary` | GET | Get document summary |
 | `/documents/{id}` | DELETE | Delete document |
+| `/history` | GET | Query history |
+| `/bookmarks` | GET/POST | Manage bookmarks |
 | `/health` | GET | Health check |
 | `/stats` | GET | Statistics |
 | `/docs` | GET | API documentation |
@@ -971,6 +1137,10 @@ tail -f logs/workpedia.log
 ## Glossary
 
 **Chunk:** A segment of text from a document (typically 512 tokens)
+
+**Confidence Score:** Measure of answer reliability based on source quality (0-100%)
+
+**Document Summary:** Auto-generated executive summary with key bullet points
 
 **Embedding:** Vector representation of text that captures semantic meaning
 
@@ -987,6 +1157,10 @@ tail -f logs/workpedia.log
 **Vector Store:** Database that stores embeddings for similarity search
 
 **Context Chunks:** Number of relevant document segments retrieved to answer a query
+
+**Agreement Score:** Measure of how much multiple sources agree with each other
+
+**Coverage Score:** Measure of how many relevant sources were found for a query
 
 ---
 

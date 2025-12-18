@@ -69,6 +69,11 @@ Production Settings:
 - Circuit breaker: Opens after 5 failures, 60s recovery timeout
 - Timeouts: Health check (5s), generation (120s), streaming (180s)
 
+Feature Settings:
+- Confidence Scoring: Enabled by default, thresholds (HIGH: 0.75, MEDIUM: 0.50)
+- Document Summaries: Enabled by default, 5 bullets, 15000 char input limit
+- Query History: Auto-save enabled, session tracking enabled
+
 ## Development Commands
 
 ### Environment Setup
@@ -205,11 +210,31 @@ timeout 30 ollama run mistral "test prompt"
   - Combines retrieval + generation
   - Source citation and formatting
   - Health checks
+  - Summary query detection for "what's in this document" queries
 - `api/endpoints.py`: FastAPI REST API
   - Query endpoints (sync and streaming)
   - Document management (upload, index, delete)
+  - Document summary endpoint
   - System stats and health checks
   - OpenAPI documentation at /docs
+
+**Additional Features** (ALL COMPLETE):
+
+- `core/confidence.py`: Answer Confidence Scoring
+  - Calculate confidence based on similarity, agreement, and coverage
+  - Configurable thresholds (HIGH >= 0.75, MEDIUM >= 0.50)
+  - Detailed factors breakdown for transparency
+  - Emoji indicators (🟢 HIGH, 🟡 MEDIUM, 🔴 LOW)
+- `core/summarizer.py`: Document Summarization
+  - Auto-generate 3-7 bullet executive summaries during indexing
+  - LLM-based summarization using Ollama
+  - Stored as searchable chunks in vector store
+  - Automatic detection of summary queries
+- `storage/history_store.py`: Query History & Bookmarks
+  - Persistent SQLite storage of all queries
+  - Bookmark favorite Q&A pairs with tags and notes
+  - Export to Markdown, JSON, PDF formats
+  - Session tracking and filtering
 
 **Large Document Strategy** (Split-Process-Merge):
 
@@ -227,7 +252,7 @@ timeout 30 ollama run mistral "test prompt"
 **Testing**:
 
 ```bash
-# Run all tests (111 tests)
+# Run all tests (150+ tests)
 pytest tests/
 
 # Run parser-specific tests
@@ -238,6 +263,12 @@ pytest tests/test_phase3.py -v
 
 # Run Phase 4 tests (LLM, query engine, API)
 pytest tests/test_phase4.py -v
+
+# Run confidence scoring tests
+pytest tests/test_confidence.py -v
+
+# Run document summarizer tests
+pytest tests/test_summarizer.py -v
 
 # Run integration tests
 pytest tests/test_integration.py -v

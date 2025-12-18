@@ -11,6 +11,8 @@ Workpedia is a privacy-focused RAG application that processes complex documents 
 - **Vector Storage**: ChromaDB for efficient similarity search
 - **Embeddings**: sentence-transformers/all-mpnet-base-v2 for high-quality semantic representations
 - **LLM Generation**: Ollama + Mistral 7B for local, privacy-preserving text generation
+- **Confidence Scoring**: Answer reliability indicators (🟢 High / 🟡 Medium / 🔴 Low) based on source quality
+- **Document Summaries**: Auto-generated executive summaries with 3-7 bullet points per document
 - **Query History**: Persistent storage of all queries with full context and sources
 - **Bookmarks**: Organize favorite Q&A pairs with notes and tags
 - **Export**: Export queries and answers to Markdown, JSON, or PDF formats
@@ -33,6 +35,8 @@ workpedia/
 │   ├── embedder.py      # Embedder for semantic vector generation
 │   ├── llm.py           # OllamaClient for LLM integration
 │   ├── query_engine.py  # RAG query engine
+│   ├── confidence.py    # Answer confidence scoring
+│   ├── summarizer.py    # Document summary generation
 │   ├── exceptions.py    # Custom exception hierarchy
 │   ├── logging_config.py # Production logging infrastructure
 │   ├── validators.py    # Input validation and sanitization
@@ -48,7 +52,7 @@ workpedia/
 ├── api/                 # API endpoints and query interface
 │   └── endpoints.py     # FastAPI REST API
 ├── app.py               # Streamlit web UI
-├── tests/               # Test files (111 tests)
+├── tests/               # Test files (150+ tests)
 ├── data/                # Sample data and test documents
 │   ├── input/           # Input documents for testing
 │   └── output/          # Processed output
@@ -98,7 +102,7 @@ ollama pull mistral
 pytest tests/ -v
 ```
 
-All 111 tests should pass.
+All 150+ tests should pass.
 
 ## Usage
 
@@ -244,12 +248,14 @@ python -m api.endpoints --host 0.0.0.0 --port 8080 --reload
 ```
 
 API Endpoints:
-- `POST /query` - Query documents and get AI-generated answer
+- `POST /query` - Query documents and get AI-generated answer (includes confidence score)
 - `POST /query/stream` - Streaming query response
 - `POST /search` - Semantic search without generation
-- `POST /documents/index` - Index a document from filesystem
-- `POST /documents/upload` - Upload and index a document
+- `POST /documents/index` - Index a document from filesystem (generates summary)
+- `POST /documents/upload` - Upload and index a document (generates summary)
 - `GET /documents` - List all indexed documents
+- `GET /documents/{doc_id}` - Get document details
+- `GET /documents/{doc_id}/summary` - Get auto-generated document summary
 - `DELETE /documents/{doc_id}` - Delete a document
 - `GET /history` - List query history with filters
 - `GET /history/{query_id}` - Get specific query
@@ -350,7 +356,13 @@ Edit `config/config.py` to customize:
 - [x] Document upload and indexing API
 - [x] Health checks and system statistics
 - [x] Streamlit web UI for user-friendly document upload and Q&A
-- [x] 111 tests passing
+- [x] 150+ tests passing
+
+### Additional Features - Complete ✓
+
+- [x] **Query History & Bookmarks**: Persistent SQLite storage with export to Markdown/JSON/PDF
+- [x] **Answer Confidence Scoring**: Reliability indicators based on source quality and agreement
+- [x] **Document Summaries**: Auto-generated executive summaries during indexing
 
 ### Production Improvements - Complete ✓
 
@@ -379,6 +391,8 @@ Edit `config/config.py` to customize:
 - **Privacy-First**: All processing happens locally, no data sent to external APIs
 - **Structure-Aware**: Preserves document hierarchies, tables, and cross-references
 - **Automatic Table of Contents**: Synthetic TOC chunk created for each document enables queries like "List main chapters"
+- **Document Summaries**: Auto-generated executive summaries (3-7 bullets) when documents are indexed
+- **Confidence Scoring**: Every answer includes a reliability score (🟢 High / 🟡 Medium / 🔴 Low)
 - **Multi-Format**: Supports PDF, DOCX, HTML, and images
 - **Large Document Support**: Automatic chunking for 100+ page documents
 - **Rich Metadata**: Stores page numbers, bounding boxes, and document structure
@@ -387,6 +401,7 @@ Edit `config/config.py` to customize:
 - **Semantic Search**: High-quality 768-dim embeddings with cosine similarity
 - **Persistent Storage**: ChromaDB vector store with disk persistence
 - **RAG Query Engine**: Combines retrieval and generation for accurate answers
+- **Query History & Bookmarks**: Persistent storage of queries with export functionality
 - **REST API**: Full-featured API with streaming support and OpenAPI docs
 - **Web UI**: User-friendly Streamlit interface for document upload and Q&A
 
