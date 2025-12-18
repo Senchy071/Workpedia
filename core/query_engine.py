@@ -355,6 +355,58 @@ class QueryEngine:
     ) -> List[Dict[str, Any]]:
         """Retrieve relevant chunks."""
         chunks = []
+        question_lower = question.lower()
+
+        # Check if this is a summary/overview query
+        summary_keywords = [
+            "what is in this document",
+            "what's in this document",
+            "what does this document",
+            "document summary",
+            "document overview",
+            "summarize this document",
+            "summarize the document",
+            "summary of this document",
+            "overview of this document",
+            "what is this document about",
+            "what's this document about",
+            "main topics",
+            "main points",
+            "key points",
+            "key topics",
+            "tell me about this document",
+            "describe this document",
+            "what does it cover",
+            "what does it contain",
+        ]
+        is_summary_query = any(kw in question_lower for kw in summary_keywords)
+
+        if is_summary_query:
+            # Fetch summary chunk directly by metadata
+            summary_filter = {"chunk_type": "document_summary"}
+            if doc_id:
+                summary_filter["doc_id"] = doc_id
+
+            summary_results = self.vector_store._collection.get(
+                where=summary_filter,
+                include=["documents", "metadatas"],
+            )
+
+            if summary_results["ids"]:
+                for chunk_id, content, metadata in zip(
+                    summary_results["ids"],
+                    summary_results["documents"],
+                    summary_results["metadatas"],
+                ):
+                    chunks.append(
+                        {
+                            "chunk_id": chunk_id,
+                            "content": content,
+                            "metadata": metadata,
+                            "similarity": 1.0,  # Perfect match for explicit summary request
+                        }
+                    )
+                logger.info(f"Summary query detected, retrieved {len(chunks)} summary chunk(s)")
 
         # Check if this is a TOC-related query
         # Semantic search fails for TOC because the detailed TOC chunk embedding
@@ -374,7 +426,6 @@ class QueryEngine:
             "all sections",
             "main sections",
         ]
-        question_lower = question.lower()
         is_toc_query = any(kw in question_lower for kw in toc_keywords)
 
         if is_toc_query:
@@ -389,19 +440,21 @@ class QueryEngine:
             )
 
             if toc_results["ids"]:
+                existing_ids = {c["chunk_id"] for c in chunks}
                 for chunk_id, content, metadata in zip(
                     toc_results["ids"],
                     toc_results["documents"],
                     toc_results["metadatas"],
                 ):
-                    chunks.append(
-                        {
-                            "chunk_id": chunk_id,
-                            "content": content,
-                            "metadata": metadata,
-                            "similarity": 1.0,  # Perfect match for explicit TOC request
-                        }
-                    )
+                    if chunk_id not in existing_ids:
+                        chunks.append(
+                            {
+                                "chunk_id": chunk_id,
+                                "content": content,
+                                "metadata": metadata,
+                                "similarity": 1.0,  # Perfect match for explicit TOC request
+                            }
+                        )
                 logger.info(f"TOC query detected, retrieved {len(chunks)} TOC chunk(s)")
 
         # Fill remaining slots with semantic search

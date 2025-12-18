@@ -91,3 +91,9 @@ CONFIDENCE_SIMILARITY_WEIGHT = 0.5  # Weight for similarity score component
 CONFIDENCE_AGREEMENT_WEIGHT = 0.3  # Weight for source agreement component
 CONFIDENCE_COVERAGE_WEIGHT = 0.2  # Weight for coverage score component
 CONFIDENCE_MIN_SOURCES = 3  # Minimum sources for full coverage score
+
+# Document summary settings
+SUMMARY_ENABLED = True  # Auto-generate summaries when indexing documents
+SUMMARY_MAX_BULLETS = 5  # Number of bullet points in summary (3-7)
+SUMMARY_MAX_INPUT_CHARS = 15000  # Max chars to send to LLM for summarization
+SUMMARY_TEMPERATURE = 0.3  # LLM temperature (lower = more focused/consistent)

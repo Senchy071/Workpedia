@@ -45,14 +45,21 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 
 ---
 
-### 3. Document Summaries
+### 3. Document Summaries ✅ IMPLEMENTED
 **Why**: Users want quick overview before querying
 
 **Features:**
 - Auto-generate summary when document is indexed
-- Use Ollama to create 3-5 bullet executive summary
-- Show in document list and stats tab
+- Use Ollama to create 3-7 bullet executive summary
+- Store as searchable chunk in vector store
 - Query: "What's in this document?" → Return summary
+- API endpoint: `GET /documents/{doc_id}/summary`
+
+**Implementation:**
+- `core/summarizer.py`: DocumentSummarizer with LLM-based summarization
+- Integrated into DocumentIndexer (generates summary during indexing)
+- Summary detection in QueryEngine for "what's in this document" queries
+- Configurable settings in `config/config.py`
 
 **Effort**: Medium | **Impact**: High
 

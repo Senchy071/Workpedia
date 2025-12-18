@@ -20,6 +20,7 @@ from core.exceptions import (
 if TYPE_CHECKING:
     from core.chunker import SemanticChunker
     from core.embedder import Embedder
+    from core.summarizer import DocumentSummarizer
 
 logger = logging.getLogger(__name__)
 
@@ -346,12 +347,40 @@ class VectorStore:
             "documents": len(self.list_documents()),
         }
 
+    def get_document_summary(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the summary chunk for a specific document.
+
+        Args:
+            doc_id: Document ID
+
+        Returns:
+            Summary chunk data with content and metadata, or None if not found
+        """
+        try:
+            results = self._collection.get(
+                where={"$and": [{"doc_id": doc_id}, {"chunk_type": "document_summary"}]},
+                include=["documents", "metadatas"],
+            )
+
+            if results["ids"]:
+                return {
+                    "chunk_id": results["ids"][0],
+                    "content": results["documents"][0] if results.get("documents") else "",
+                    "metadata": results["metadatas"][0] if results.get("metadatas") else {},
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get document summary: {e}")
+            return None
+
 
 class DocumentIndexer:
     """
     High-level interface for indexing documents into the vector store.
 
     Combines chunking, embedding, and storage into a single workflow.
+    Optionally generates document summaries during indexing.
     """
 
     def __init__(
@@ -359,6 +388,8 @@ class DocumentIndexer:
         vector_store: Optional[VectorStore] = None,
         embedder: Optional["Embedder"] = None,
         chunker: Optional["SemanticChunker"] = None,
+        summarizer: Optional["DocumentSummarizer"] = None,
+        enable_summaries: bool = True,
     ):
         """
         Initialize document indexer.
@@ -367,6 +398,8 @@ class DocumentIndexer:
             vector_store: VectorStore instance (creates default if None)
             embedder: Embedder instance (creates default if None)
             chunker: SemanticChunker instance (creates default if None)
+            summarizer: DocumentSummarizer instance (creates default if None)
+            enable_summaries: Generate summaries during indexing
         """
         # Lazy imports to avoid circular dependencies
         if vector_store is None:
@@ -379,17 +412,24 @@ class DocumentIndexer:
             from core.chunker import SemanticChunker
 
             chunker = SemanticChunker()
+        if summarizer is None and enable_summaries:
+            from core.summarizer import DocumentSummarizer
+
+            summarizer = DocumentSummarizer()
 
         self.vector_store = vector_store
         self.embedder = embedder
         self.chunker = chunker
+        self.summarizer = summarizer
+        self.enable_summaries = enable_summaries
 
-        logger.info("DocumentIndexer initialized")
+        logger.info(f"DocumentIndexer initialized (summaries={enable_summaries})")
 
     def index_document(
         self,
         parsed_doc: Dict[str, Any],
         replace_existing: bool = True,
+        generate_summary: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
         Index a parsed document into the vector store.
@@ -397,9 +437,10 @@ class DocumentIndexer:
         Args:
             parsed_doc: Output from DocumentParser.parse()
             replace_existing: Delete existing chunks for this doc first
+            generate_summary: Generate document summary (None = use default setting)
 
         Returns:
-            Indexing result with doc_id, chunks_added, etc.
+            Indexing result with doc_id, chunks_added, summary, etc.
         """
         doc_id = parsed_doc.get("doc_id", "unknown")
         filename = parsed_doc.get("metadata", {}).get("filename", "unknown")
@@ -422,6 +463,7 @@ class DocumentIndexer:
                 "filename": filename,
                 "chunks_added": 0,
                 "status": "empty",
+                "summary": None,
             }
 
         # Create synthetic Table of Contents chunk
@@ -429,6 +471,17 @@ class DocumentIndexer:
         if toc_chunk:
             chunks.insert(0, toc_chunk)  # Add at beginning
             logger.info(f"Created synthetic TOC chunk with {len(toc_chunk.content)} characters")
+
+        # Create document summary chunk if enabled
+        summary_result = None
+        should_summarize = generate_summary if generate_summary is not None else self.enable_summaries
+        if should_summarize and self.summarizer:
+            summary_chunk, summary_result = self._create_summary_chunk(parsed_doc, doc_id)
+            if summary_chunk:
+                chunks.insert(0, summary_chunk)  # Add at beginning (before TOC)
+                logger.info(
+                    f"Created summary chunk with {len(summary_chunk.content)} characters"
+                )
 
         # Generate embeddings
         embeddings = self.embedder.embed_chunks(chunks)
@@ -441,13 +494,67 @@ class DocumentIndexer:
             f"total store size: {self.vector_store.count}"
         )
 
-        return {
+        result = {
             "doc_id": doc_id,
             "filename": filename,
             "chunks_added": added,
             "total_tokens": sum(c.token_count for c in chunks),
             "status": "success",
+            "summary": summary_result.to_dict() if summary_result else None,
         }
+
+        return result
+
+    def _create_summary_chunk(
+        self,
+        parsed_doc: Dict[str, Any],
+        doc_id: str,
+    ) -> tuple[Optional[Chunk], Optional["DocumentSummary"]]:
+        """
+        Create a document summary chunk using the LLM.
+
+        Args:
+            parsed_doc: Output from DocumentParser.parse()
+            doc_id: Document ID
+
+        Returns:
+            Tuple of (Chunk object, DocumentSummary) or (None, None) if failed
+        """
+        if not self.summarizer:
+            return None, None
+
+        try:
+            from core.summarizer import DocumentSummary
+
+            summary = self.summarizer.summarize(parsed_doc)
+
+            if not summary:
+                return None, None
+
+            # Format summary for storage as chunk
+            summary_content = self.summarizer.format_summary_for_chunk(summary)
+
+            chunk = Chunk(
+                chunk_id=f"{doc_id}_summary",
+                doc_id=doc_id,
+                content=summary_content,
+                token_count=len(summary_content) // 4,
+                metadata={
+                    "chunk_index": -2,  # Before TOC (-1)
+                    "chunk_type": "document_summary",
+                    "section": "Document Summary",
+                    "filename": parsed_doc.get("metadata", {}).get("filename", ""),
+                    "file_path": parsed_doc.get("metadata", {}).get("file_path", ""),
+                    "num_bullets": len(summary.bullets),
+                    "summary_model": summary.metadata.get("model", ""),
+                },
+            )
+
+            return chunk, summary
+
+        except Exception as e:
+            logger.error(f"Failed to create summary chunk: {e}")
+            return None, None
 
     def _create_toc_chunk(
         self,

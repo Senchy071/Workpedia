@@ -452,6 +452,15 @@ class IndexRequest(BaseModel):
             raise ValueError(f"Invalid file_path: {e}")
 
 
+class DocumentSummaryResponse(BaseModel):
+    """Document summary response."""
+
+    doc_id: str
+    summary: str
+    bullets: List[str]
+    metadata: dict
+
+
 class IndexResponse(BaseModel):
     """Response model for indexing."""
 
@@ -460,6 +469,9 @@ class IndexResponse(BaseModel):
     chunks_added: int
     total_tokens: int
     status: str
+    summary: Optional[DocumentSummaryResponse] = Field(
+        None, description="Auto-generated document summary (if enabled)"
+    )
 
 
 class HealthResponse(BaseModel):
@@ -805,6 +817,67 @@ async def delete_document(doc_id: str):
         raise
     except Exception as e:
         logger.error(f"Delete document failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/documents/{doc_id}/summary", tags=["Documents"])
+async def get_document_summary(doc_id: str):
+    """
+    Get the auto-generated summary for a document.
+
+    Returns the executive summary with bullet points if available.
+    """
+    if query_engine is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    # Validate document ID
+    try:
+        doc_id = validate_document_id(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid document ID: {e}")
+
+    try:
+        # Get summary from vector store
+        summary_data = query_engine.vector_store.get_document_summary(doc_id)
+
+        if not summary_data:
+            # Check if document exists at all
+            doc_data = query_engine.vector_store.get_by_doc_id(doc_id)
+            if not doc_data["ids"]:
+                raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"No summary available for document: {doc_id}. "
+                "Summary may not have been generated during indexing.",
+            )
+
+        # Parse bullets from summary content
+        content = summary_data.get("content", "")
+        metadata = summary_data.get("metadata", {})
+
+        # Extract bullet points from content
+        bullets = []
+        for line in content.split("\n"):
+            line = line.strip()
+            if line and line[0].isdigit() and ". " in line[:4]:
+                bullet = line.split(". ", 1)[1] if ". " in line else line
+                bullets.append(bullet)
+
+        return {
+            "doc_id": doc_id,
+            "summary": content,
+            "bullets": bullets,
+            "metadata": {
+                "filename": metadata.get("filename", ""),
+                "num_bullets": metadata.get("num_bullets", len(bullets)),
+                "summary_model": metadata.get("summary_model", ""),
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get document summary failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
