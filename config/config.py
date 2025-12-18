@@ -82,3 +82,12 @@ HISTORY_DB_DIR = DATA_DIR / "history_db"
 HISTORY_DB_PATH = str(HISTORY_DB_DIR / "history.sqlite3")
 HISTORY_AUTO_SAVE = True  # Auto-save all queries
 HISTORY_SESSION_ENABLED = True  # Track session IDs
+
+# Confidence scoring settings
+CONFIDENCE_ENABLED = True  # Enable confidence scoring for queries
+CONFIDENCE_HIGH_THRESHOLD = 0.75  # Score >= this is HIGH confidence
+CONFIDENCE_MEDIUM_THRESHOLD = 0.50  # Score >= this is MEDIUM confidence (below is LOW)
+CONFIDENCE_SIMILARITY_WEIGHT = 0.5  # Weight for similarity score component
+CONFIDENCE_AGREEMENT_WEIGHT = 0.3  # Weight for source agreement component
+CONFIDENCE_COVERAGE_WEIGHT = 0.2  # Weight for coverage score component
+CONFIDENCE_MIN_SOURCES = 3  # Minimum sources for full coverage score

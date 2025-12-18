@@ -397,6 +397,17 @@ class QueryRequest(BaseModel):
             raise ValueError(f"Invalid doc_id: {e}")
 
 
+class ConfidenceResponse(BaseModel):
+    """Confidence score response."""
+
+    overall_score: float = Field(..., description="Combined confidence score (0.0 - 1.0)")
+    level: str = Field(..., description="Confidence level: high, medium, or low")
+    similarity_score: float = Field(..., description="Source similarity score")
+    agreement_score: float = Field(..., description="Source agreement score")
+    coverage_score: float = Field(..., description="Source coverage score")
+    factors: dict = Field(..., description="Detailed scoring breakdown")
+
+
 class QueryResponse(BaseModel):
     """Response model for queries."""
 
@@ -404,6 +415,9 @@ class QueryResponse(BaseModel):
     answer: str
     sources: List[dict]
     metadata: dict
+    confidence: Optional[ConfidenceResponse] = Field(
+        None, description="Answer confidence scoring (if enabled)"
+    )
 
 
 class DocumentInfo(BaseModel):

@@ -6,28 +6,40 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 
 ## 🎯 HIGH PRIORITY (Quick Wins, High Value)
 
-### 1. Query History & Bookmarks
+### 1. Query History & Bookmarks ✅ IMPLEMENTED
 **Why**: Users lose their queries when the session ends
 
 **Features:**
-- Persistent chat history across sessions (SQLite or JSON)
-- Bookmark favorite Q&A pairs
-- Search past queries
-- Export conversation history to Markdown/JSON
+- Persistent chat history across sessions (SQLite)
+- Bookmark favorite Q&A pairs with tags and notes
+- Search past queries by text
+- Export conversation history to Markdown/JSON/PDF
+
+**Implementation:**
+- `storage/history_store.py`: Full history and bookmark management
+- API endpoints: `/history/*` and `/bookmarks/*`
+- Session tracking and date range filtering
 
 **Effort**: Low | **Impact**: High
 
 ---
 
-### 2. Answer Confidence Scoring
+### 2. Answer Confidence Scoring ✅ IMPLEMENTED
 **Why**: Users need to know how reliable the answer is
 
 **Features:**
 - Calculate confidence based on:
   - Source similarity scores (average of top chunks)
   - Source agreement (multiple sources saying same thing)
-  - LLM perplexity/uncertainty indicators
-- Display confidence meter in UI (🟢 High / 🟡 Medium / 🔴 Low)
+  - Coverage score (how many relevant sources found)
+- Display confidence meter (🟢 High / 🟡 Medium / 🔴 Low)
+- Configurable thresholds and weights in `config/config.py`
+- Full API support with detailed factor breakdown
+
+**Implementation:**
+- `core/confidence.py`: ConfidenceScorer module
+- Integrated into QueryEngine with `enable_confidence` option
+- API response includes confidence object with score, level, and factors
 
 **Effort**: Medium | **Impact**: High
 

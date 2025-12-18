@@ -4,7 +4,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
-from config.config import HISTORY_AUTO_SAVE
+from config.config import CONFIDENCE_ENABLED, HISTORY_AUTO_SAVE
+from core.confidence import ConfidenceScore, ConfidenceScorer
 from core.embedder import Embedder
 from core.exceptions import InvalidParameterError, InvalidQueryError
 from core.llm import RAG_SYSTEM_PROMPT, OllamaClient, format_rag_prompt
@@ -27,21 +28,26 @@ class QueryResult:
         answer: Generated answer
         sources: List of source chunks used
         metadata: Additional query metadata
+        confidence: Confidence score for the answer (optional)
     """
 
     question: str
     answer: str
     sources: List[Dict[str, Any]] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    confidence: Optional[ConfidenceScore] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
-        return {
+        result = {
             "question": self.question,
             "answer": self.answer,
             "sources": self.sources,
             "metadata": self.metadata,
         }
+        if self.confidence:
+            result["confidence"] = self.confidence.to_dict()
+        return result
 
 
 class QueryEngine:
@@ -70,6 +76,8 @@ class QueryEngine:
         temperature: float = 0.7,
         history_store: Optional["HistoryStore"] = None,
         auto_save_history: bool = HISTORY_AUTO_SAVE,
+        enable_confidence: bool = CONFIDENCE_ENABLED,
+        confidence_scorer: Optional[ConfidenceScorer] = None,
     ):
         """
         Initialize query engine.
@@ -82,6 +90,8 @@ class QueryEngine:
             temperature: LLM sampling temperature
             history_store: HistoryStore instance for saving queries (optional)
             auto_save_history: Automatically save queries to history
+            enable_confidence: Enable confidence scoring for queries
+            confidence_scorer: ConfidenceScorer instance (creates default if None)
         """
         self.vector_store = vector_store or VectorStore()
         self.embedder = embedder or Embedder()
@@ -90,10 +100,12 @@ class QueryEngine:
         self.temperature = temperature
         self.history_store = history_store
         self.auto_save_history = auto_save_history
+        self.enable_confidence = enable_confidence
+        self.confidence_scorer = confidence_scorer or ConfidenceScorer()
 
         logger.info(
             f"QueryEngine initialized: n_results={n_results}, temperature={temperature}, "
-            f"auto_save_history={auto_save_history}"
+            f"auto_save_history={auto_save_history}, enable_confidence={enable_confidence}"
         )
 
     def query(
@@ -174,7 +186,12 @@ class QueryEngine:
         # Step 2: Generate answer
         answer = self._generate(question, chunks, temperature, max_tokens)
 
-        # Step 3: Format result
+        # Step 3: Calculate confidence score
+        confidence = None
+        if self.enable_confidence:
+            confidence = self.confidence_scorer.calculate(chunks, n_results)
+
+        # Step 4: Format result
         sources = [
             {
                 "content": c["content"][:500] + "..." if len(c["content"]) > 500 else c["content"],
@@ -193,9 +210,10 @@ class QueryEngine:
                 "temperature": temperature,
                 "model": self.llm.model,
             },
+            confidence=confidence,
         )
 
-        # Step 4: Save to history if enabled
+        # Step 5: Save to history if enabled
         should_save = save_to_history if save_to_history is not None else self.auto_save_history
         if should_save and self.history_store:
             try:
@@ -303,6 +321,11 @@ class QueryEngine:
 
         answer = "".join(answer_parts)
 
+        # Calculate confidence score
+        confidence = None
+        if self.enable_confidence:
+            confidence = self.confidence_scorer.calculate(chunks, n_results)
+
         sources = [
             {
                 "content": c["content"][:500] + "..." if len(c["content"]) > 500 else c["content"],
@@ -321,6 +344,7 @@ class QueryEngine:
                 "temperature": temperature,
                 "model": self.llm.model,
             },
+            confidence=confidence,
         )
 
     def _retrieve(
