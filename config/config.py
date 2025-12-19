@@ -97,3 +97,14 @@ SUMMARY_ENABLED = True  # Auto-generate summaries when indexing documents
 SUMMARY_MAX_BULLETS = 5  # Number of bullet points in summary (3-7)
 SUMMARY_MAX_INPUT_CHARS = 15000  # Max chars to send to LLM for summarization
 SUMMARY_TEMPERATURE = 0.3  # LLM temperature (lower = more focused/consistent)
+
+# Query suggestion settings
+SUGGESTIONS_ENABLED = True  # Auto-generate query suggestions when indexing documents
+SUGGESTIONS_MAX_PER_DOCUMENT = 15  # Maximum suggestions per document
+SUGGESTIONS_MIN_HEADING_LENGTH = 5  # Minimum heading length to process
+SUGGESTIONS_QUESTION_TEMPLATES = [
+    "What is {topic}?",
+    "Tell me about {topic}",
+    "Explain {topic}",
+    "What are the key points about {topic}?",
+]

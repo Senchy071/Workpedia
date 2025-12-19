@@ -462,6 +462,25 @@ class DocumentSummaryResponse(BaseModel):
     metadata: dict
 
 
+class QuerySuggestionResponse(BaseModel):
+    """Single query suggestion."""
+
+    suggestion_id: str
+    text: str
+    source_type: str
+    source_text: str
+    priority: int
+    metadata: dict
+
+
+class DocumentSuggestionsResponse(BaseModel):
+    """Document suggestions response."""
+
+    doc_id: str
+    suggestions: List[QuerySuggestionResponse]
+    count: int
+
+
 class IndexResponse(BaseModel):
     """Response model for indexing."""
 
@@ -472,6 +491,9 @@ class IndexResponse(BaseModel):
     status: str
     summary: Optional[DocumentSummaryResponse] = Field(
         None, description="Auto-generated document summary (if enabled)"
+    )
+    suggestions: Optional[List[QuerySuggestionResponse]] = Field(
+        None, description="Auto-generated query suggestions (if enabled)"
     )
 
 
@@ -879,6 +901,90 @@ async def get_document_summary(doc_id: str):
         raise
     except Exception as e:
         logger.error(f"Get document summary failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(
+    "/documents/{doc_id}/suggestions",
+    response_model=DocumentSuggestionsResponse,
+    tags=["Documents"],
+)
+async def get_document_suggestions(doc_id: str):
+    """
+    Get auto-generated query suggestions for a document.
+
+    Returns suggested questions based on document structure:
+    - Section headings -> "What is X?" questions
+    - TOC entries -> "Tell me about [topic]" queries
+    - Key concepts extracted from content
+    """
+    if query_engine is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    # Validate document ID
+    try:
+        doc_id = validate_document_id(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid document ID: {e}")
+
+    try:
+        # Get suggestions from vector store
+        suggestions_data = query_engine.vector_store.get_document_suggestions(doc_id)
+
+        if not suggestions_data:
+            # Check if document exists at all
+            doc_data = query_engine.vector_store.get_by_doc_id(doc_id)
+            if not doc_data["ids"]:
+                raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+            # Document exists but no suggestions - generate defaults
+            from core.suggestions import QuerySuggestionGenerator
+
+            generator = QuerySuggestionGenerator()
+            # Get filename from any chunk metadata
+            filename = "document"
+            if doc_data["metadatas"]:
+                filename = doc_data["metadatas"][0].get("filename", "document")
+
+            default_suggestions = generator.get_default_suggestions(doc_id, filename)
+            return DocumentSuggestionsResponse(
+                doc_id=doc_id,
+                suggestions=[
+                    QuerySuggestionResponse(
+                        suggestion_id=s.suggestion_id,
+                        text=s.text,
+                        source_type=s.source_type,
+                        source_text=s.source_text,
+                        priority=s.priority,
+                        metadata=s.metadata,
+                    )
+                    for s in default_suggestions
+                ],
+                count=len(default_suggestions),
+            )
+
+        # Parse suggestions from stored data
+        suggestions = suggestions_data.get("suggestions", [])
+        return DocumentSuggestionsResponse(
+            doc_id=doc_id,
+            suggestions=[
+                QuerySuggestionResponse(
+                    suggestion_id=s.get("suggestion_id", ""),
+                    text=s.get("text", ""),
+                    source_type=s.get("source_type", ""),
+                    source_text=s.get("source_text", ""),
+                    priority=s.get("priority", 1),
+                    metadata=s.get("metadata", {}),
+                )
+                for s in suggestions
+            ],
+            count=len(suggestions),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get document suggestions failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

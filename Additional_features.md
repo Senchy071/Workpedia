@@ -12,10 +12,10 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 | 2 | Answer Confidence Scoring | ✅ Complete  | `core/confidence.py`                            |
 | 3 | Document Summaries        | ✅ Complete  | `core/summarizer.py`                            |
 | 4 | Export Functionality      | ✅ Complete  | `storage/history_store.py`, `api/endpoints.py`  |
-| 5 | Query Suggestions         | ⏳ Pending   | -                                               |
+| 5 | Query Suggestions         | ✅ Complete  | `core/suggestions.py`                           |
 | 6 | Hybrid Search             | ⏳ Pending   | -                                               |
 
-**Progress**: 4/6 HIGH PRIORITY features implemented
+**Progress**: 5/6 HIGH PRIORITY features implemented
 
 ---
 
@@ -106,15 +106,23 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 
 ---
 
-### 5. Query Suggestions / Auto-complete
+### 5. Query Suggestions / Auto-complete ✅ IMPLEMENTED
 **Why**: Help users ask better questions
 
 **Features:**
 - Extract common questions from indexed content
   - Section headings → Questions ("What is X?")
   - TOC entries → "Tell me about [topic]"
-- Show suggested queries below chat input
-- "Based on this document, you might ask..."
+  - Key concepts → "What is [concept]?"
+- Auto-generate during document indexing
+- Priority-based ordering (h1 > h2 > h3)
+- API endpoint: `GET /documents/{doc_id}/suggestions`
+
+**Implementation:**
+- `core/suggestions.py`: QuerySuggestionGenerator module
+- Integrated into DocumentIndexer (generates during indexing)
+- Suggestions stored as special chunks in vector store
+- Configurable in `config/config.py` (max suggestions, min heading length)
 
 **Effort**: Medium | **Impact**: Medium
 

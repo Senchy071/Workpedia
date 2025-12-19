@@ -13,6 +13,7 @@ Workpedia is a privacy-focused RAG application that processes complex documents 
 - **LLM Generation**: Ollama + Mistral 7B for local, privacy-preserving text generation
 - **Confidence Scoring**: Answer reliability indicators (🟢 High / 🟡 Medium / 🔴 Low) based on source quality
 - **Document Summaries**: Auto-generated executive summaries with 3-7 bullet points per document
+- **Query Suggestions**: Auto-generated questions from document headings and key concepts
 - **Query History**: Persistent storage of all queries with full context and sources
 - **Bookmarks**: Organize favorite Q&A pairs with notes and tags
 - **Export**: Export queries and answers to Markdown, JSON, or PDF formats
@@ -37,6 +38,7 @@ workpedia/
 │   ├── query_engine.py  # RAG query engine
 │   ├── confidence.py    # Answer confidence scoring
 │   ├── summarizer.py    # Document summary generation
+│   ├── suggestions.py   # Query suggestion generation
 │   ├── exceptions.py    # Custom exception hierarchy
 │   ├── logging_config.py # Production logging infrastructure
 │   ├── validators.py    # Input validation and sanitization
@@ -256,6 +258,7 @@ API Endpoints:
 - `GET /documents` - List all indexed documents
 - `GET /documents/{doc_id}` - Get document details
 - `GET /documents/{doc_id}/summary` - Get auto-generated document summary
+- `GET /documents/{doc_id}/suggestions` - Get auto-generated query suggestions
 - `DELETE /documents/{doc_id}` - Delete a document
 - `GET /history` - List query history with filters
 - `GET /history/{query_id}` - Get specific query
@@ -393,6 +396,7 @@ Edit `config/config.py` to customize:
 - **Automatic Table of Contents**: Synthetic TOC chunk created for each document enables queries like "List main chapters"
 - **Document Summaries**: Auto-generated executive summaries (3-7 bullets) when documents are indexed
 - **Confidence Scoring**: Every answer includes a reliability score (🟢 High / 🟡 Medium / 🔴 Low)
+- **Query Suggestions**: Auto-generated questions from document structure and headings
 - **Multi-Format**: Supports PDF, DOCX, HTML, and images
 - **Large Document Support**: Automatic chunking for 100+ page documents
 - **Rich Metadata**: Stores page numbers, bounding boxes, and document structure

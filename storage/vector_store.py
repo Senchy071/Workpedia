@@ -20,6 +20,7 @@ from core.exceptions import (
 if TYPE_CHECKING:
     from core.chunker import SemanticChunker
     from core.embedder import Embedder
+    from core.suggestions import QuerySuggestionGenerator
     from core.summarizer import DocumentSummarizer
 
 logger = logging.getLogger(__name__)
@@ -374,13 +375,48 @@ class VectorStore:
             logger.error(f"Failed to get document summary: {e}")
             return None
 
+    def get_document_suggestions(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the suggestions chunk for a specific document.
+
+        Args:
+            doc_id: Document ID
+
+        Returns:
+            Suggestions chunk data with content (JSON list) and metadata, or None if not found
+        """
+        try:
+            results = self._collection.get(
+                where={"$and": [{"doc_id": doc_id}, {"chunk_type": "query_suggestions"}]},
+                include=["documents", "metadatas"],
+            )
+
+            if results["ids"]:
+                import json
+
+                content = results["documents"][0] if results.get("documents") else "[]"
+                try:
+                    suggestions = json.loads(content)
+                except json.JSONDecodeError:
+                    suggestions = []
+
+                return {
+                    "chunk_id": results["ids"][0],
+                    "suggestions": suggestions,
+                    "metadata": results["metadatas"][0] if results.get("metadatas") else {},
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get document suggestions: {e}")
+            return None
+
 
 class DocumentIndexer:
     """
     High-level interface for indexing documents into the vector store.
 
     Combines chunking, embedding, and storage into a single workflow.
-    Optionally generates document summaries during indexing.
+    Optionally generates document summaries and query suggestions during indexing.
     """
 
     def __init__(
@@ -389,7 +425,9 @@ class DocumentIndexer:
         embedder: Optional["Embedder"] = None,
         chunker: Optional["SemanticChunker"] = None,
         summarizer: Optional["DocumentSummarizer"] = None,
+        suggestion_generator: Optional["QuerySuggestionGenerator"] = None,
         enable_summaries: bool = True,
+        enable_suggestions: bool = True,
     ):
         """
         Initialize document indexer.
@@ -399,7 +437,9 @@ class DocumentIndexer:
             embedder: Embedder instance (creates default if None)
             chunker: SemanticChunker instance (creates default if None)
             summarizer: DocumentSummarizer instance (creates default if None)
+            suggestion_generator: QuerySuggestionGenerator (creates default if None)
             enable_summaries: Generate summaries during indexing
+            enable_suggestions: Generate query suggestions during indexing
         """
         # Lazy imports to avoid circular dependencies
         if vector_store is None:
@@ -416,20 +456,30 @@ class DocumentIndexer:
             from core.summarizer import DocumentSummarizer
 
             summarizer = DocumentSummarizer()
+        if suggestion_generator is None and enable_suggestions:
+            from core.suggestions import QuerySuggestionGenerator
+
+            suggestion_generator = QuerySuggestionGenerator()
 
         self.vector_store = vector_store
         self.embedder = embedder
         self.chunker = chunker
         self.summarizer = summarizer
+        self.suggestion_generator = suggestion_generator
         self.enable_summaries = enable_summaries
+        self.enable_suggestions = enable_suggestions
 
-        logger.info(f"DocumentIndexer initialized (summaries={enable_summaries})")
+        logger.info(
+            f"DocumentIndexer initialized (summaries={enable_summaries}, "
+            f"suggestions={enable_suggestions})"
+        )
 
     def index_document(
         self,
         parsed_doc: Dict[str, Any],
         replace_existing: bool = True,
         generate_summary: Optional[bool] = None,
+        generate_suggestions: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
         Index a parsed document into the vector store.
@@ -438,9 +488,10 @@ class DocumentIndexer:
             parsed_doc: Output from DocumentParser.parse()
             replace_existing: Delete existing chunks for this doc first
             generate_summary: Generate document summary (None = use default setting)
+            generate_suggestions: Generate query suggestions (None = use default setting)
 
         Returns:
-            Indexing result with doc_id, chunks_added, summary, etc.
+            Indexing result with doc_id, chunks_added, summary, suggestions, etc.
         """
         doc_id = parsed_doc.get("doc_id", "unknown")
         filename = parsed_doc.get("metadata", {}).get("filename", "unknown")
@@ -464,6 +515,7 @@ class DocumentIndexer:
                 "chunks_added": 0,
                 "status": "empty",
                 "summary": None,
+                "suggestions": None,
             }
 
         # Create synthetic Table of Contents chunk
@@ -474,13 +526,30 @@ class DocumentIndexer:
 
         # Create document summary chunk if enabled
         summary_result = None
-        should_summarize = generate_summary if generate_summary is not None else self.enable_summaries
+        should_summarize = (
+            generate_summary if generate_summary is not None else self.enable_summaries
+        )
         if should_summarize and self.summarizer:
             summary_chunk, summary_result = self._create_summary_chunk(parsed_doc, doc_id)
             if summary_chunk:
                 chunks.insert(0, summary_chunk)  # Add at beginning (before TOC)
                 logger.info(
                     f"Created summary chunk with {len(summary_chunk.content)} characters"
+                )
+
+        # Create query suggestions chunk if enabled
+        suggestions_result = None
+        should_suggest = (
+            generate_suggestions if generate_suggestions is not None else self.enable_suggestions
+        )
+        if should_suggest and self.suggestion_generator:
+            suggestions_chunk, suggestions_result = self._create_suggestions_chunk(
+                parsed_doc, doc_id, filename
+            )
+            if suggestions_chunk:
+                chunks.insert(0, suggestions_chunk)  # Add at beginning
+                logger.info(
+                    f"Created suggestions chunk with {len(suggestions_result)} suggestions"
                 )
 
         # Generate embeddings
@@ -501,6 +570,9 @@ class DocumentIndexer:
             "total_tokens": sum(c.token_count for c in chunks),
             "status": "success",
             "summary": summary_result.to_dict() if summary_result else None,
+            "suggestions": (
+                [s.to_dict() for s in suggestions_result] if suggestions_result else None
+            ),
         }
 
         return result
@@ -509,7 +581,7 @@ class DocumentIndexer:
         self,
         parsed_doc: Dict[str, Any],
         doc_id: str,
-    ) -> tuple[Optional[Chunk], Optional["DocumentSummary"]]:
+    ) -> tuple[Optional[Chunk], Optional[Any]]:
         """
         Create a document summary chunk using the LLM.
 
@@ -524,8 +596,6 @@ class DocumentIndexer:
             return None, None
 
         try:
-            from core.summarizer import DocumentSummary
-
             summary = self.summarizer.summarize(parsed_doc)
 
             if not summary:
@@ -554,6 +624,69 @@ class DocumentIndexer:
 
         except Exception as e:
             logger.error(f"Failed to create summary chunk: {e}")
+            return None, None
+
+    def _create_suggestions_chunk(
+        self,
+        parsed_doc: Dict[str, Any],
+        doc_id: str,
+        filename: str,
+    ) -> tuple[Optional[Chunk], Optional[List[Any]]]:
+        """
+        Create a query suggestions chunk from document structure.
+
+        Args:
+            parsed_doc: Output from DocumentParser.parse()
+            doc_id: Document ID
+            filename: Document filename
+
+        Returns:
+            Tuple of (Chunk object, list of QuerySuggestion) or (None, None) if failed
+        """
+        if not self.suggestion_generator:
+            return None, None
+
+        try:
+            import json
+
+            suggestions = self.suggestion_generator.generate_suggestions(parsed_doc)
+
+            # If no suggestions from content, use defaults
+            if not suggestions:
+                suggestions = self.suggestion_generator.get_default_suggestions(doc_id, filename)
+
+            if not suggestions:
+                return None, None
+
+            # Store suggestions as JSON in the chunk content
+            suggestions_json = json.dumps([s.to_dict() for s in suggestions], indent=2)
+
+            # Create a human-readable content as well for embedding
+            readable_content = "# SUGGESTED QUESTIONS\n\n"
+            readable_content += "Based on this document, you might ask:\n\n"
+            for s in suggestions:
+                readable_content += f"- {s.text}\n"
+
+            chunk = Chunk(
+                chunk_id=f"{doc_id}_suggestions",
+                doc_id=doc_id,
+                content=suggestions_json,  # Store JSON for retrieval
+                token_count=len(suggestions_json) // 4,
+                metadata={
+                    "chunk_index": -3,  # Before summary (-2) and TOC (-1)
+                    "chunk_type": "query_suggestions",
+                    "section": "Query Suggestions",
+                    "filename": parsed_doc.get("metadata", {}).get("filename", ""),
+                    "file_path": parsed_doc.get("metadata", {}).get("file_path", ""),
+                    "suggestion_count": len(suggestions),
+                    "readable_content": readable_content,
+                },
+            )
+
+            return chunk, suggestions
+
+        except Exception as e:
+            logger.error(f"Failed to create suggestions chunk: {e}")
             return None, None
 
     def _create_toc_chunk(
@@ -596,9 +729,9 @@ class DocumentIndexer:
                     toc_lines = [
                         "# TABLE OF CONTENTS",
                         "",
-                        "This is the table of contents. This is the complete table of contents for this document.",
-                        "The table of contents lists all chapters, sections, and topics in this book.",
-                        "Document outline and structure: table of contents showing all main chapters and sections.",
+                        "This is the table of contents for this document.",
+                        "Lists all chapters, sections, and topics.",
+                        "Document outline and structure.",
                         "",
                         "Complete chapter list and document outline:",
                         "",
@@ -805,9 +938,9 @@ class DocumentIndexer:
                                 [
                                     "# TABLE OF CONTENTS",
                                     "",
-                                    "This is the table of contents. This is the complete table of contents for this document.",
-                                    "The table of contents lists all chapters, sections, and topics in this book.",
-                                    "Document outline and structure: table of contents showing all main chapters and sections.",
+                                    "This is the table of contents for this document.",
+                                    "Lists all chapters, sections, and topics.",
+                                    "Document outline and structure.",
                                     "",
                                     "Complete chapter list and document outline:",
                                     "",
@@ -882,9 +1015,9 @@ class DocumentIndexer:
         toc_lines = [
             "# TABLE OF CONTENTS",
             "",
-            "This is the table of contents. This is the complete table of contents for this document.",
-            "The table of contents lists all chapters, sections, and topics in this book.",
-            "Document outline and structure: table of contents showing all main chapters and sections.",
+            "This is the table of contents for this document.",
+            "Lists all chapters, sections, and topics.",
+            "Document outline and structure.",
             "",
             "Complete chapter list and document outline:",
             "",
