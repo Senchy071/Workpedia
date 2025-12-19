@@ -17,6 +17,9 @@ python-multipart>=0.0.6
 # Web UI
 streamlit>=1.31.0
 
+# Search
+rank-bm25>=0.2.2  # BM25 keyword search for hybrid search
+
 # Utilities
 numpy>=1.24.0,<2.0.0
 pandas>=2.0.0

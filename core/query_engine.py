@@ -2,9 +2,9 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional
 
-from config.config import CONFIDENCE_ENABLED, HISTORY_AUTO_SAVE
+from config.config import CONFIDENCE_ENABLED, HISTORY_AUTO_SAVE, HYBRID_SEARCH_ENABLED
 from core.confidence import ConfidenceScore, ConfidenceScorer
 from core.embedder import Embedder
 from core.exceptions import InvalidParameterError, InvalidQueryError
@@ -13,6 +13,7 @@ from core.validators import validate_document_id, validate_query, validate_query
 from storage.vector_store import VectorStore
 
 if TYPE_CHECKING:
+    from core.hybrid_search import HybridSearcher
     from storage.history_store import HistoryStore
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,8 @@ class QueryEngine:
         auto_save_history: bool = HISTORY_AUTO_SAVE,
         enable_confidence: bool = CONFIDENCE_ENABLED,
         confidence_scorer: Optional[ConfidenceScorer] = None,
+        hybrid_searcher: Optional["HybridSearcher"] = None,
+        enable_hybrid_search: bool = HYBRID_SEARCH_ENABLED,
     ):
         """
         Initialize query engine.
@@ -92,6 +95,8 @@ class QueryEngine:
             auto_save_history: Automatically save queries to history
             enable_confidence: Enable confidence scoring for queries
             confidence_scorer: ConfidenceScorer instance (creates default if None)
+            hybrid_searcher: HybridSearcher for combined semantic + keyword search
+            enable_hybrid_search: Enable hybrid search (semantic + BM25 + RRF)
         """
         self.vector_store = vector_store or VectorStore()
         self.embedder = embedder or Embedder()
@@ -102,10 +107,22 @@ class QueryEngine:
         self.auto_save_history = auto_save_history
         self.enable_confidence = enable_confidence
         self.confidence_scorer = confidence_scorer or ConfidenceScorer()
+        self.enable_hybrid_search = enable_hybrid_search
+
+        # Initialize hybrid searcher if enabled
+        if hybrid_searcher is None and enable_hybrid_search:
+            from config.config import HYBRID_SEARCH_INDEX_PATH
+            from core.hybrid_search import BM25Index, HybridSearcher
+
+            bm25_index = BM25Index(persist_path=HYBRID_SEARCH_INDEX_PATH)
+            hybrid_searcher = HybridSearcher(bm25_index=bm25_index)
+
+        self.hybrid_searcher = hybrid_searcher
 
         logger.info(
             f"QueryEngine initialized: n_results={n_results}, temperature={temperature}, "
-            f"auto_save_history={auto_save_history}, enable_confidence={enable_confidence}"
+            f"auto_save_history={auto_save_history}, enable_confidence={enable_confidence}, "
+            f"enable_hybrid_search={enable_hybrid_search}"
         )
 
     def query(
@@ -457,32 +474,66 @@ class QueryEngine:
                         )
                 logger.info(f"TOC query detected, retrieved {len(chunks)} TOC chunk(s)")
 
-        # Fill remaining slots with semantic search
+        # Fill remaining slots with search (hybrid or semantic-only)
         remaining_slots = n_results - len(chunks)
         if remaining_slots > 0:
             # Generate query embedding
             query_embedding = self.embedder.embed(question)
 
-            # Search vector store
+            # Search vector store (semantic search)
             where = {"doc_id": doc_id} if doc_id else None
             results = self.vector_store.query(
                 query_embedding=query_embedding,
-                n_results=remaining_slots + len(chunks),  # Get extra to filter duplicates
+                n_results=remaining_slots * 2,  # Get extra for hybrid fusion
                 where=where,
             )
 
-            # Add semantic results, skipping any already added (TOC chunks)
-            existing_ids = {c["chunk_id"] for c in chunks}
+            # Format semantic results
+            semantic_results = []
             for i in range(len(results["ids"])):
-                if results["ids"][i] not in existing_ids and len(chunks) < n_results:
-                    chunks.append(
-                        {
-                            "chunk_id": results["ids"][i],
-                            "content": results["documents"][i],
-                            "metadata": results["metadatas"][i],
-                            "similarity": 1 - results["distances"][i],
-                        }
-                    )
+                semantic_results.append(
+                    {
+                        "chunk_id": results["ids"][i],
+                        "content": results["documents"][i],
+                        "metadata": results["metadatas"][i],
+                        "similarity": 1 - results["distances"][i],
+                    }
+                )
+
+            # Apply hybrid search if enabled
+            if self.enable_hybrid_search and self.hybrid_searcher:
+                hybrid_results = self.hybrid_searcher.search(
+                    query=question,
+                    semantic_results=semantic_results,
+                    n_results=remaining_slots + len(chunks),
+                    doc_id=doc_id,
+                )
+
+                # Add hybrid results, skipping any already added
+                existing_ids = {c["chunk_id"] for c in chunks}
+                for result in hybrid_results:
+                    if result.chunk_id not in existing_ids and len(chunks) < n_results:
+                        chunks.append(
+                            {
+                                "chunk_id": result.chunk_id,
+                                "content": result.content,
+                                "metadata": result.metadata,
+                                "similarity": result.combined_score,
+                                "semantic_score": result.semantic_score,
+                                "keyword_score": result.keyword_score,
+                            }
+                        )
+                logger.debug(
+                    f"Hybrid search returned {len(hybrid_results)} results, "
+                    f"added {len(chunks)} after filtering"
+                )
+            else:
+                # Semantic-only search
+                existing_ids = {c["chunk_id"] for c in chunks}
+                for result in semantic_results:
+                    chunk_id = result["chunk_id"]
+                    if chunk_id not in existing_ids and len(chunks) < n_results:
+                        chunks.append(result)
 
         return chunks
 

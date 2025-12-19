@@ -13,9 +13,9 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 | 3 | Document Summaries        | ✅ Complete  | `core/summarizer.py`                            |
 | 4 | Export Functionality      | ✅ Complete  | `storage/history_store.py`, `api/endpoints.py`  |
 | 5 | Query Suggestions         | ✅ Complete  | `core/suggestions.py`                           |
-| 6 | Hybrid Search             | ⏳ Pending   | -                                               |
+| 6 | Hybrid Search             | ✅ Complete  | `core/hybrid_search.py`                         |
 
-**Progress**: 5/6 HIGH PRIORITY features implemented
+**Progress**: 6/6 HIGH PRIORITY features implemented
 
 ---
 
@@ -130,13 +130,28 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 
 ## 🚀 MEDIUM PRIORITY (Enhanced Capabilities)
 
-### 6. Hybrid Search (Semantic + Keyword)
+### 6. Hybrid Search (Semantic + Keyword) ✅ IMPLEMENTED
 **Why**: Semantic search misses exact matches (names, codes, IDs)
 
 **Features:**
 - Combine ChromaDB vector search with BM25 keyword ranking
 - Use Reciprocal Rank Fusion (RRF) to merge results
 - Example: "Find invoice #12345" (exact match) vs "payment issues" (semantic)
+- Configurable weights for semantic vs keyword search
+- Persistent BM25 index with disk storage
+- Automatic indexing during document ingestion
+
+**Implementation:**
+- `core/hybrid_search.py`: BM25Index, HybridSearcher, RRF algorithm
+- Integrated into DocumentIndexer (indexes chunks in BM25 during ingestion)
+- Integrated into QueryEngine (hybrid search during retrieval)
+- Configurable in `config/config.py` (weights, RRF k constant)
+
+**Configuration:**
+- `HYBRID_SEARCH_ENABLED`: Enable/disable hybrid search
+- `HYBRID_SEARCH_K`: RRF constant (default 60)
+- `HYBRID_SEARCH_SEMANTIC_WEIGHT`: Semantic weight (default 0.7)
+- `HYBRID_SEARCH_KEYWORD_WEIGHT`: Keyword weight (default 0.3)
 
 **Effort**: Medium | **Impact**: High
 

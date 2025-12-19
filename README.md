@@ -14,6 +14,7 @@ Workpedia is a privacy-focused RAG application that processes complex documents 
 - **Confidence Scoring**: Answer reliability indicators (🟢 High / 🟡 Medium / 🔴 Low) based on source quality
 - **Document Summaries**: Auto-generated executive summaries with 3-7 bullet points per document
 - **Query Suggestions**: Auto-generated questions from document headings and key concepts
+- **Hybrid Search**: Semantic + BM25 keyword search combined using Reciprocal Rank Fusion
 - **Query History**: Persistent storage of all queries with full context and sources
 - **Bookmarks**: Organize favorite Q&A pairs with notes and tags
 - **Export**: Export queries and answers to Markdown, JSON, or PDF formats
@@ -39,6 +40,7 @@ workpedia/
 │   ├── confidence.py    # Answer confidence scoring
 │   ├── summarizer.py    # Document summary generation
 │   ├── suggestions.py   # Query suggestion generation
+│   ├── hybrid_search.py # Hybrid search (semantic + BM25)
 │   ├── exceptions.py    # Custom exception hierarchy
 │   ├── logging_config.py # Production logging infrastructure
 │   ├── validators.py    # Input validation and sanitization
@@ -397,6 +399,7 @@ Edit `config/config.py` to customize:
 - **Document Summaries**: Auto-generated executive summaries (3-7 bullets) when documents are indexed
 - **Confidence Scoring**: Every answer includes a reliability score (🟢 High / 🟡 Medium / 🔴 Low)
 - **Query Suggestions**: Auto-generated questions from document structure and headings
+- **Hybrid Search**: Combines semantic + BM25 keyword search using Reciprocal Rank Fusion
 - **Multi-Format**: Supports PDF, DOCX, HTML, and images
 - **Large Document Support**: Automatic chunking for 100+ page documents
 - **Rich Metadata**: Stores page numbers, bounding boxes, and document structure

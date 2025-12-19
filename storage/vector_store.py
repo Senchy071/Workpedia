@@ -20,6 +20,7 @@ from core.exceptions import (
 if TYPE_CHECKING:
     from core.chunker import SemanticChunker
     from core.embedder import Embedder
+    from core.hybrid_search import HybridSearcher
     from core.suggestions import QuerySuggestionGenerator
     from core.summarizer import DocumentSummarizer
 
@@ -416,7 +417,7 @@ class DocumentIndexer:
     High-level interface for indexing documents into the vector store.
 
     Combines chunking, embedding, and storage into a single workflow.
-    Optionally generates document summaries and query suggestions during indexing.
+    Optionally generates document summaries, query suggestions, and hybrid search index.
     """
 
     def __init__(
@@ -426,8 +427,10 @@ class DocumentIndexer:
         chunker: Optional["SemanticChunker"] = None,
         summarizer: Optional["DocumentSummarizer"] = None,
         suggestion_generator: Optional["QuerySuggestionGenerator"] = None,
+        hybrid_searcher: Optional["HybridSearcher"] = None,
         enable_summaries: bool = True,
         enable_suggestions: bool = True,
+        enable_hybrid_search: bool = True,
     ):
         """
         Initialize document indexer.
@@ -438,8 +441,10 @@ class DocumentIndexer:
             chunker: SemanticChunker instance (creates default if None)
             summarizer: DocumentSummarizer instance (creates default if None)
             suggestion_generator: QuerySuggestionGenerator (creates default if None)
+            hybrid_searcher: HybridSearcher for BM25 indexing (creates default if None)
             enable_summaries: Generate summaries during indexing
             enable_suggestions: Generate query suggestions during indexing
+            enable_hybrid_search: Index chunks in BM25 for hybrid search
         """
         # Lazy imports to avoid circular dependencies
         if vector_store is None:
@@ -460,18 +465,26 @@ class DocumentIndexer:
             from core.suggestions import QuerySuggestionGenerator
 
             suggestion_generator = QuerySuggestionGenerator()
+        if hybrid_searcher is None and enable_hybrid_search:
+            from config.config import HYBRID_SEARCH_INDEX_PATH
+            from core.hybrid_search import BM25Index, HybridSearcher
+
+            bm25_index = BM25Index(persist_path=HYBRID_SEARCH_INDEX_PATH)
+            hybrid_searcher = HybridSearcher(bm25_index=bm25_index)
 
         self.vector_store = vector_store
         self.embedder = embedder
         self.chunker = chunker
         self.summarizer = summarizer
         self.suggestion_generator = suggestion_generator
+        self.hybrid_searcher = hybrid_searcher
         self.enable_summaries = enable_summaries
         self.enable_suggestions = enable_suggestions
+        self.enable_hybrid_search = enable_hybrid_search
 
         logger.info(
             f"DocumentIndexer initialized (summaries={enable_summaries}, "
-            f"suggestions={enable_suggestions})"
+            f"suggestions={enable_suggestions}, hybrid_search={enable_hybrid_search})"
         )
 
     def index_document(
@@ -558,6 +571,21 @@ class DocumentIndexer:
         # Store in vector store
         added = self.vector_store.add_chunks(chunks, embeddings)
 
+        # Index in BM25 for hybrid search
+        bm25_indexed = 0
+        if self.enable_hybrid_search and self.hybrid_searcher:
+            chunk_dicts = [
+                {
+                    "chunk_id": c.chunk_id,
+                    "content": c.content,
+                    "metadata": {**c.metadata, "doc_id": c.doc_id},
+                }
+                for c in chunks
+            ]
+            bm25_indexed = self.hybrid_searcher.add_chunks_to_index(chunk_dicts)
+            self.hybrid_searcher.save_index()
+            logger.info(f"Indexed {bm25_indexed} chunks in BM25 for hybrid search")
+
         logger.info(
             f"Indexed document {filename}: {added} chunks, "
             f"total store size: {self.vector_store.count}"
@@ -573,6 +601,7 @@ class DocumentIndexer:
             "suggestions": (
                 [s.to_dict() for s in suggestions_result] if suggestions_result else None
             ),
+            "bm25_indexed": bm25_indexed,
         }
 
         return result
@@ -1030,14 +1059,16 @@ class DocumentIndexer:
         query: str,
         n_results: int = 5,
         doc_id: Optional[str] = None,
+        use_hybrid: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Search for relevant chunks.
+        Search for relevant chunks using hybrid search (semantic + keyword).
 
         Args:
             query: Search query text
             n_results: Number of results to return
             doc_id: Optional filter to specific document
+            use_hybrid: Use hybrid search (None = use default setting)
 
         Returns:
             List of result dicts with content, metadata, and similarity score
@@ -1096,35 +1127,83 @@ class DocumentIndexer:
                     )
                 logger.info(f"TOC query detected, retrieved {len(formatted)} TOC chunk(s)")
 
-        # Fill remaining slots with semantic search
+        # Determine if hybrid search should be used
+        should_use_hybrid = (
+            use_hybrid if use_hybrid is not None else self.enable_hybrid_search
+        )
+
+        # Fill remaining slots with search
         remaining_slots = n_results - len(formatted)
         if remaining_slots > 0:
             where = {"doc_id": doc_id} if doc_id else None
 
-            results = self.vector_store.query_text(
+            # Get semantic search results
+            semantic_results = self.vector_store.query_text(
                 query_text=query,
                 embedder=self.embedder,
-                n_results=remaining_slots + len(formatted),  # Get extra to filter duplicates
+                n_results=remaining_slots * 2,  # Get extra for fusion
                 where=where,
             )
 
-            # Add semantic results, skipping any already added (TOC chunks)
-            existing_ids = {r["chunk_id"] for r in formatted}
+            # Format semantic results
+            semantic_formatted = []
             for chunk_id, content, metadata, distance in zip(
-                results["ids"],
-                results["documents"],
-                results["metadatas"],
-                results["distances"],
+                semantic_results["ids"],
+                semantic_results["documents"],
+                semantic_results["metadatas"],
+                semantic_results["distances"],
             ):
-                if chunk_id not in existing_ids and len(formatted) < n_results:
-                    formatted.append(
-                        {
-                            "rank": len(formatted) + 1,
-                            "chunk_id": chunk_id,
-                            "content": content,
-                            "metadata": metadata,
-                            "similarity": 1 - distance,
-                        }
-                    )
+                semantic_formatted.append(
+                    {
+                        "chunk_id": chunk_id,
+                        "content": content,
+                        "metadata": metadata,
+                        "similarity": 1 - distance,
+                    }
+                )
+
+            # Apply hybrid search if enabled
+            if should_use_hybrid and self.hybrid_searcher:
+                hybrid_results = self.hybrid_searcher.search(
+                    query=query,
+                    semantic_results=semantic_formatted,
+                    n_results=remaining_slots + len(formatted),
+                    doc_id=doc_id,
+                )
+
+                # Add hybrid results, skipping any already added (TOC chunks)
+                existing_ids = {r["chunk_id"] for r in formatted}
+                for result in hybrid_results:
+                    if result.chunk_id not in existing_ids and len(formatted) < n_results:
+                        formatted.append(
+                            {
+                                "rank": len(formatted) + 1,
+                                "chunk_id": result.chunk_id,
+                                "content": result.content,
+                                "metadata": result.metadata,
+                                "similarity": result.combined_score,
+                                "semantic_score": result.semantic_score,
+                                "keyword_score": result.keyword_score,
+                            }
+                        )
+                logger.debug(
+                    f"Hybrid search: {len(hybrid_results)} results, "
+                    f"returned {len(formatted)} after filtering"
+                )
+            else:
+                # Semantic-only search
+                existing_ids = {r["chunk_id"] for r in formatted}
+                for result in semantic_formatted:
+                    chunk_id = result["chunk_id"]
+                    if chunk_id not in existing_ids and len(formatted) < n_results:
+                        formatted.append(
+                            {
+                                "rank": len(formatted) + 1,
+                                "chunk_id": chunk_id,
+                                "content": result["content"],
+                                "metadata": result["metadata"],
+                                "similarity": result["similarity"],
+                            }
+                        )
 
         return formatted

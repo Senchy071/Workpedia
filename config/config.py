@@ -108,3 +108,10 @@ SUGGESTIONS_QUESTION_TEMPLATES = [
     "Explain {topic}",
     "What are the key points about {topic}?",
 ]
+
+# Hybrid search settings (semantic + keyword search with RRF)
+HYBRID_SEARCH_ENABLED = True  # Enable hybrid search (combines semantic + BM25)
+HYBRID_SEARCH_K = 60  # RRF constant k (higher = less emphasis on top ranks)
+HYBRID_SEARCH_SEMANTIC_WEIGHT = 0.7  # Weight for semantic search (0.0-1.0)
+HYBRID_SEARCH_KEYWORD_WEIGHT = 0.3  # Weight for keyword search (0.0-1.0)
+HYBRID_SEARCH_INDEX_PATH = str(DATA_DIR / "bm25_index.json")  # BM25 index persistence
