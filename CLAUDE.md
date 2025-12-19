@@ -72,6 +72,8 @@ Production Settings:
 Feature Settings:
 - Confidence Scoring: Enabled by default, thresholds (HIGH: 0.75, MEDIUM: 0.50)
 - Document Summaries: Enabled by default, 5 bullets, 15000 char input limit
+- Query Suggestions: Enabled by default, max 15 per document, min heading length 5
+- Hybrid Search: Enabled by default, semantic weight 0.7, keyword weight 0.3, RRF k=60
 - Query History: Auto-save enabled, session tracking enabled
 
 ## Development Commands
@@ -218,23 +220,43 @@ timeout 30 ollama run mistral "test prompt"
   - System stats and health checks
   - OpenAPI documentation at /docs
 
-**Additional Features** (ALL COMPLETE):
+**Additional Features** (ALL 6 HIGH PRIORITY FEATURES COMPLETE):
 
-- `core/confidence.py`: Answer Confidence Scoring
-  - Calculate confidence based on similarity, agreement, and coverage
-  - Configurable thresholds (HIGH >= 0.75, MEDIUM >= 0.50)
-  - Detailed factors breakdown for transparency
-  - Emoji indicators (🟢 HIGH, 🟡 MEDIUM, 🔴 LOW)
-- `core/summarizer.py`: Document Summarization
-  - Auto-generate 3-7 bullet executive summaries during indexing
-  - LLM-based summarization using Ollama
-  - Stored as searchable chunks in vector store
-  - Automatic detection of summary queries
-- `storage/history_store.py`: Query History & Bookmarks
-  - Persistent SQLite storage of all queries
-  - Bookmark favorite Q&A pairs with tags and notes
-  - Export to Markdown, JSON, PDF formats
-  - Session tracking and filtering
+1. `storage/history_store.py`: Query History & Bookmarks
+   - Persistent SQLite storage of all queries
+   - Bookmark favorite Q&A pairs with tags and notes
+   - Export to Markdown, JSON, PDF formats
+   - Session tracking and filtering
+
+2. `core/confidence.py`: Answer Confidence Scoring
+   - Calculate confidence based on similarity, agreement, and coverage
+   - Configurable thresholds (HIGH >= 0.75, MEDIUM >= 0.50)
+   - Detailed factors breakdown for transparency
+   - Emoji indicators (🟢 HIGH, 🟡 MEDIUM, 🔴 LOW)
+
+3. `core/summarizer.py`: Document Summarization
+   - Auto-generate 3-7 bullet executive summaries during indexing
+   - LLM-based summarization using Ollama
+   - Stored as searchable chunks in vector store
+   - Automatic detection of summary queries
+
+4. `storage/history_store.py`: Export Functionality
+   - Export query history to Markdown, JSON, PDF
+   - Export bookmarks with notes and tags
+   - Confidence scores included in exports
+   - Proper Content-Disposition headers for downloads
+
+5. `core/suggestions.py`: Query Suggestions
+   - Auto-generate questions from section headings
+   - Extract from TOC entries and key concepts
+   - Priority-based ordering (h1 > h2 > h3)
+   - Stored as special chunks in vector store
+
+6. `core/hybrid_search.py`: Hybrid Search (Semantic + BM25)
+   - BM25Index for keyword search with persistent storage
+   - HybridSearcher combines semantic + keyword using RRF
+   - Configurable weights (default: 70% semantic, 30% keyword)
+   - Improves exact match queries (IDs, codes, names)
 
 **Large Document Strategy** (Split-Process-Merge):
 
@@ -264,11 +286,11 @@ pytest tests/test_phase3.py -v
 # Run Phase 4 tests (LLM, query engine, API)
 pytest tests/test_phase4.py -v
 
-# Run confidence scoring tests
-pytest tests/test_confidence.py -v
-
-# Run document summarizer tests
-pytest tests/test_summarizer.py -v
+# Run additional feature tests
+pytest tests/test_confidence.py -v        # Confidence scoring
+pytest tests/test_summarizer.py -v        # Document summaries
+pytest tests/test_suggestions.py -v       # Query suggestions
+pytest tests/test_hybrid_search.py -v     # Hybrid search
 
 # Run integration tests
 pytest tests/test_integration.py -v

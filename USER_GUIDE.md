@@ -15,10 +15,12 @@ This guide will help you get started with Workpedia and make the most of its fea
 5. [Querying Documents](#querying-documents)
 6. [Understanding Confidence Scores](#understanding-confidence-scores)
 7. [Document Summaries](#document-summaries)
-8. [Configuration](#configuration)
-9. [Advanced Features](#advanced-features)
-10. [Troubleshooting](#troubleshooting)
-11. [Best Practices](#best-practices)
+8. [Query Suggestions](#query-suggestions)
+9. [Hybrid Search](#hybrid-search)
+10. [Configuration](#configuration)
+11. [Advanced Features](#advanced-features)
+12. [Troubleshooting](#troubleshooting)
+13. [Best Practices](#best-practices)
 
 ---
 
@@ -520,6 +522,186 @@ SUMMARY_TEMPERATURE = 0.3    # Lower = more focused summaries
 - Very short documents may not generate useful summaries
 - Summaries are searchable - they help with overview queries
 - Re-indexing a document regenerates its summary
+
+---
+
+## Query Suggestions
+
+Workpedia automatically generates **suggested questions** from your documents, helping you discover what questions to ask.
+
+### How It Works
+
+When a document is indexed:
+1. Extracts section headings (## Methods, ## Results)
+2. Identifies key concepts from content
+3. Converts to natural questions
+4. Stores suggestions with priority ranking
+
+### Accessing Suggestions
+
+#### Via API
+
+```bash
+# Get suggestions for a specific document
+curl http://localhost:8000/documents/{doc_id}/suggestions
+```
+
+Response:
+```json
+{
+  "doc_id": "report_2024_abc123",
+  "suggestions": [
+    {
+      "suggestion_id": "report_2024_abc123_heading_1",
+      "text": "What is covered in the Methods section?",
+      "source_type": "heading",
+      "source_text": "Methods",
+      "priority": 8,
+      "metadata": {"heading_level": 2}
+    },
+    {
+      "suggestion_id": "report_2024_abc123_concept_0",
+      "text": "What is Machine Learning?",
+      "source_type": "concept",
+      "source_text": "Machine Learning",
+      "priority": 5,
+      "metadata": {"frequency": 12}
+    }
+  ],
+  "count": 15
+}
+```
+
+### Suggestion Types
+
+1. **Heading-based**: From document sections
+   - "What is covered in the Introduction?"
+   - "Tell me about Chapter 3"
+
+2. **Concept-based**: From frequent capitalized phrases
+   - "What is Neural Network Architecture?"
+   - "What is Deep Learning?"
+
+3. **Default**: For documents without clear structure
+   - "What is this document about?"
+   - "What are the main topics?"
+
+### Configuration
+
+```python
+# config/config.py
+SUGGESTIONS_ENABLED = True           # Enable/disable auto-suggestions
+SUGGESTIONS_MAX_PER_DOCUMENT = 15    # Maximum suggestions per document
+SUGGESTIONS_MIN_HEADING_LENGTH = 5   # Minimum heading length to process
+```
+
+### Tips
+
+- Suggestions are generated during indexing
+- Higher priority suggestions appear first
+- Great for discovering what's in unfamiliar documents
+- Suggestions are stored as special chunks
+
+---
+
+## Hybrid Search
+
+Workpedia uses **hybrid search** combining semantic similarity and keyword matching for best results.
+
+### How It Works
+
+For every query, Workpedia:
+1. **Semantic Search**: Finds conceptually similar chunks (ChromaDB)
+2. **Keyword Search**: Finds exact term matches (BM25)
+3. **RRF Fusion**: Combines rankings using Reciprocal Rank Fusion
+4. Returns unified, optimally ranked results
+
+### Why Hybrid Search?
+
+**Semantic-only limitations:**
+- Misses exact matches like "invoice #12345"
+- Poor with codes, IDs, and specific names
+- Struggles with rare or technical terms
+
+**Hybrid search advantages:**
+- Finds exact matches: "Find report ABC-2024" ✅
+- Better with technical terms and IDs
+- More robust across query types
+- Best of both worlds
+
+### Example Improvements
+
+#### Before (Semantic Only):
+```
+Query: "Find invoice 12345"
+❌ Returns: General payment info (misses exact ID)
+```
+
+#### After (Hybrid Search):
+```
+Query: "Find invoice 12345"
+✅ Returns: Exact invoice with ID 12345 (top result)
+```
+
+### How Results Are Combined
+
+**Reciprocal Rank Fusion (RRF):**
+```
+score = (semantic_weight × 1/(k + semantic_rank)) +
+        (keyword_weight × 1/(k + keyword_rank))
+```
+
+Default weights:
+- **Semantic**: 70% (better for concepts)
+- **Keyword**: 30% (better for exact matches)
+- **k constant**: 60 (standard RRF value)
+
+### Configuration
+
+```python
+# config/config.py
+HYBRID_SEARCH_ENABLED = True           # Enable/disable hybrid search
+HYBRID_SEARCH_K = 60                   # RRF constant k
+HYBRID_SEARCH_SEMANTIC_WEIGHT = 0.7    # Semantic importance (0.0-1.0)
+HYBRID_SEARCH_KEYWORD_WEIGHT = 0.3     # Keyword importance (0.0-1.0)
+HYBRID_SEARCH_INDEX_PATH = "data/bm25_index.json"  # BM25 index location
+```
+
+### Tuning Weights
+
+Adjust based on your use case:
+
+**More conceptual queries** (research, analysis):
+```python
+SEMANTIC_WEIGHT = 0.8
+KEYWORD_WEIGHT = 0.2
+```
+
+**More exact lookups** (invoices, codes, IDs):
+```python
+SEMANTIC_WEIGHT = 0.5
+KEYWORD_WEIGHT = 0.5
+```
+
+**Pure semantic** (disable hybrid):
+```python
+HYBRID_SEARCH_ENABLED = False
+```
+
+### BM25 Index
+
+The keyword search index is automatically:
+- Built during document indexing
+- Saved to disk (`data/bm25_index.json`)
+- Loaded on startup for fast queries
+- Updated when documents are added/removed
+
+### Tips
+
+- Hybrid search is automatic - no special queries needed
+- Best for mixed query types (concepts + exact matches)
+- BM25 index grows with your documents
+- Restart not needed - index updates in real-time
 
 ---
 
