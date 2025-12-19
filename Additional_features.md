@@ -6,14 +6,14 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 
 ## ✅ Implementation Status
 
-| # | Feature | Status | Module |
-|---|---------|--------|--------|
-| 1 | Query History & Bookmarks | ✅ Complete | `storage/history_store.py` |
-| 2 | Answer Confidence Scoring | ✅ Complete | `core/confidence.py` |
-| 3 | Document Summaries | ✅ Complete | `core/summarizer.py` |
-| 4 | Export Functionality | ✅ Complete | `storage/history_store.py`, `api/endpoints.py` |
-| 5 | Query Suggestions | ⏳ Pending | - |
-| 6 | Hybrid Search | ⏳ Pending | - |
+| # |         Feature           |     Status  |             Module                              |
+|---|---------------------------|-------------|-------------------------------------------------|
+| 1 | Query History & Bookmarks | ✅ Complete  | `storage/history_store.py`                      |
+| 2 | Answer Confidence Scoring | ✅ Complete  | `core/confidence.py`                            |
+| 3 | Document Summaries        | ✅ Complete  | `core/summarizer.py`                            |
+| 4 | Export Functionality      | ✅ Complete  | `storage/history_store.py`, `api/endpoints.py`  |
+| 5 | Query Suggestions         | ⏳ Pending   | -                                               |
+| 6 | Hybrid Search             | ⏳ Pending   | -                                               |
 
 **Progress**: 4/6 HIGH PRIORITY features implemented
 
