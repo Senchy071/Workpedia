@@ -7,6 +7,9 @@ from typing import Any, Dict, Generator, List, Optional
 import requests
 
 from config.config import (
+    CACHE_DIR,
+    CACHE_ENABLED,
+    CACHE_LLM_TTL,
     CIRCUIT_BREAKER_ENABLED,
     CIRCUIT_BREAKER_FAILURE_THRESHOLD,
     CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
@@ -60,6 +63,8 @@ class OllamaClient:
         timeout: int = None,
         enable_retry: bool = RETRY_ENABLED,
         enable_circuit_breaker: bool = CIRCUIT_BREAKER_ENABLED,
+        enable_cache: bool = CACHE_ENABLED,
+        cache_ttl: int = CACHE_LLM_TTL,
     ):
         """
         Initialize Ollama client.
@@ -70,6 +75,8 @@ class OllamaClient:
             timeout: Request timeout in seconds (default: from config)
             enable_retry: Enable retry logic with exponential backoff
             enable_circuit_breaker: Enable circuit breaker pattern
+            enable_cache: Enable caching for LLM responses
+            cache_ttl: Cache TTL in seconds (default: 1 hour)
         """
         self.model = model
         self.base_url = base_url.rstrip("/")
@@ -101,9 +108,22 @@ class OllamaClient:
         else:
             self.circuit_breaker = None
 
+        # Initialize cache
+        self._cache = None
+        if enable_cache:
+            from core.caching import LLMCache
+
+            cache_dir = CACHE_DIR / "llm"
+            self._cache = LLMCache(
+                cache_dir=cache_dir,
+                ttl=cache_ttl,
+                enabled=True,
+            )
+
         logger.info(
             f"OllamaClient initialized: model={model}, url={base_url}, "
-            f"retry={enable_retry}, circuit_breaker={enable_circuit_breaker}"
+            f"retry={enable_retry}, circuit_breaker={enable_circuit_breaker}, "
+            f"cache={enable_cache}"
         )
 
     def _on_circuit_state_change(self, old_state, new_state):
@@ -466,6 +486,22 @@ class OllamaClient:
         except requests.RequestException as e:
             logger.error(f"Streaming chat failed: {e}")
             raise OllamaGenerationError(reason=str(e), model=self.model) from e
+
+    def get_cache_stats(self) -> dict:
+        """Get cache statistics.
+
+        Returns:
+            Dictionary with cache stats (size, hits, misses, etc.)
+        """
+        if self._cache is None:
+            return {"enabled": False}
+        return self._cache.stats()
+
+    def clear_cache(self) -> None:
+        """Clear the LLM response cache."""
+        if self._cache is not None:
+            self._cache.clear()
+            logger.info("LLM cache cleared")
 
 
 # Default prompts for RAG

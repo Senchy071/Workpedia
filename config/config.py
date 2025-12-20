@@ -115,3 +115,9 @@ HYBRID_SEARCH_K = 60  # RRF constant k (higher = less emphasis on top ranks)
 HYBRID_SEARCH_SEMANTIC_WEIGHT = 0.7  # Weight for semantic search (0.0-1.0)
 HYBRID_SEARCH_KEYWORD_WEIGHT = 0.3  # Weight for keyword search (0.0-1.0)
 HYBRID_SEARCH_INDEX_PATH = str(DATA_DIR / "bm25_index.json")  # BM25 index persistence
+
+# Performance caching settings
+CACHE_ENABLED = True  # Enable caching for embeddings and LLM responses
+CACHE_DIR = PROJECT_ROOT / "cache"  # Base directory for cache storage
+CACHE_EMBEDDING_TTL = 3600  # Embedding cache TTL in seconds (default: 1 hour)
+CACHE_LLM_TTL = 3600  # LLM response cache TTL in seconds (default: 1 hour)

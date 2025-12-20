@@ -544,7 +544,20 @@ class QueryEngine:
         temperature: float,
         max_tokens: Optional[int] = None,
     ) -> str:
-        """Generate answer from chunks."""
+        """Generate answer from chunks with caching support."""
+        # Check cache first
+        if self.llm._cache is not None:
+            cached_answer = self.llm._cache.get(
+                query=question,
+                context_chunks=chunks,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            if cached_answer is not None:
+                logger.info(f"LLM cache hit for query: '{question[:50]}...'")
+                return cached_answer
+
+        # Cache miss - generate new answer
         prompt = format_rag_prompt(question, chunks)
 
         answer = self.llm.generate(
@@ -554,6 +567,17 @@ class QueryEngine:
             max_tokens=max_tokens,
             stream=False,
         )
+
+        # Cache the result
+        if self.llm._cache is not None:
+            self.llm._cache.set(
+                query=question,
+                context_chunks=chunks,
+                response=answer,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            logger.debug(f"Cached LLM response for query: '{question[:50]}...'")
 
         return answer
 

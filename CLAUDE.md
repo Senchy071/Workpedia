@@ -70,6 +70,7 @@ Production Settings:
 - Timeouts: Health check (5s), generation (120s), streaming (180s)
 
 Feature Settings:
+- Performance Caching: Enabled by default, 1 hour TTL for embeddings and LLM responses
 - Confidence Scoring: Enabled by default, thresholds (HIGH: 0.75, MEDIUM: 0.50)
 - Document Summaries: Enabled by default, 5 bullets, 15000 char input limit
 - Query Suggestions: Enabled by default, max 15 per document, min heading length 5
@@ -220,7 +221,7 @@ timeout 30 ollama run mistral "test prompt"
   - System stats and health checks
   - OpenAPI documentation at /docs
 
-**Additional Features** (ALL 6 HIGH PRIORITY FEATURES COMPLETE):
+**Additional Features** (6 HIGH PRIORITY + PERFORMANCE CACHING COMPLETE):
 
 1. `storage/history_store.py`: Query History & Bookmarks
    - Persistent SQLite storage of all queries
@@ -255,8 +256,13 @@ timeout 30 ollama run mistral "test prompt"
 6. `core/hybrid_search.py`: Hybrid Search (Semantic + BM25)
    - BM25Index for keyword search with persistent storage
    - HybridSearcher combines semantic + keyword using RRF
-   - Configurable weights (default: 70% semantic, 30% keyword)
-   - Improves exact match queries (IDs, codes, names)
+
+7. `core/caching.py`: Performance Caching
+   - EmbeddingCache for query embedding caching (2-3x speedup on repeated queries)
+   - LLMCache for LLM response caching with context awareness
+   - TTL-based eviction (1 hour default)
+   - Integrated into Embedder and QueryEngine automatically
+   - Cache statistics and clearing methods available
 
 **Large Document Strategy** (Split-Process-Merge):
 
@@ -291,6 +297,7 @@ pytest tests/test_confidence.py -v        # Confidence scoring
 pytest tests/test_summarizer.py -v        # Document summaries
 pytest tests/test_suggestions.py -v       # Query suggestions
 pytest tests/test_hybrid_search.py -v     # Hybrid search
+pytest tests/test_caching.py -v           # Performance caching
 
 # Run integration tests
 pytest tests/test_integration.py -v

@@ -5,7 +5,13 @@ from typing import TYPE_CHECKING, List, Optional, Union
 
 import numpy as np
 
-from config.config import EMBEDDING_DIM, EMBEDDING_MODEL
+from config.config import (
+    CACHE_DIR,
+    CACHE_EMBEDDING_TTL,
+    CACHE_ENABLED,
+    EMBEDDING_DIM,
+    EMBEDDING_MODEL,
+)
 
 if TYPE_CHECKING:
     from core.chunker import Chunk
@@ -29,6 +35,8 @@ class Embedder:
         model_name: str = EMBEDDING_MODEL,
         device: Optional[str] = None,
         normalize: bool = True,
+        enable_cache: bool = CACHE_ENABLED,
+        cache_ttl: int = CACHE_EMBEDDING_TTL,
     ):
         """
         Initialize embedder with sentence-transformers model.
@@ -37,15 +45,29 @@ class Embedder:
             model_name: HuggingFace model name (default: all-mpnet-base-v2)
             device: Device to use ('cuda', 'cpu', or None for auto)
             normalize: Whether to normalize embeddings (recommended for cosine similarity)
+            enable_cache: Whether to enable caching for query embeddings
+            cache_ttl: Cache TTL in seconds (default: 1 hour)
         """
         self.model_name = model_name
         self.normalize = normalize
         self._model = None
         self._device = device
 
+        # Initialize cache
+        self._cache = None
+        if enable_cache:
+            from core.caching import EmbeddingCache
+
+            cache_dir = CACHE_DIR / "embeddings"
+            self._cache = EmbeddingCache(
+                cache_dir=cache_dir,
+                ttl=cache_ttl,
+                enabled=True,
+            )
+
         logger.info(
             f"Embedder initialized: model={model_name}, "
-            f"normalize={normalize}"
+            f"normalize={normalize}, cache={enable_cache}"
         )
 
     @property
@@ -85,6 +107,14 @@ class Embedder:
             For single text input, returns shape (embedding_dim,)
         """
         single_input = isinstance(texts, str)
+        original_text = texts if single_input else None
+
+        # Check cache for single text queries (typical for user queries)
+        if single_input and self._cache is not None:
+            cached = self._cache.get(texts)
+            if cached is not None:
+                return cached
+
         if single_input:
             texts = [texts]
 
@@ -99,6 +129,10 @@ class Embedder:
             convert_to_numpy=True,
             normalize_embeddings=self.normalize,
         )
+
+        # Cache single text query embeddings
+        if single_input and self._cache is not None and original_text:
+            self._cache.set(original_text, embeddings[0])
 
         if single_input:
             return embeddings[0]
@@ -166,6 +200,22 @@ class Embedder:
         if norm1 == 0 or norm2 == 0:
             return 0.0
         return float(np.dot(embedding1, embedding2) / (norm1 * norm2))
+
+    def get_cache_stats(self) -> dict:
+        """Get cache statistics.
+
+        Returns:
+            Dictionary with cache stats (size, hits, misses, etc.)
+        """
+        if self._cache is None:
+            return {"enabled": False}
+        return self._cache.stats()
+
+    def clear_cache(self) -> None:
+        """Clear the embedding cache."""
+        if self._cache is not None:
+            self._cache.clear()
+            logger.info("Embedding cache cleared")
 
     def cleanup(self):
         """Release model resources."""

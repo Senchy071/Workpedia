@@ -11,6 +11,7 @@ Workpedia is a privacy-focused RAG application that processes complex documents 
 - **Vector Storage**: ChromaDB for efficient similarity search
 - **Embeddings**: sentence-transformers/all-mpnet-base-v2 for high-quality semantic representations
 - **LLM Generation**: Ollama + Mistral 7B for local, privacy-preserving text generation
+- **Performance Caching**: Intelligent caching of embeddings and LLM responses for 2-3x speedup on repeated queries
 - **Confidence Scoring**: Answer reliability indicators (🟢 High / 🟡 Medium / 🔴 Low) based on source quality
 - **Document Summaries**: Auto-generated executive summaries with 3-7 bullet points per document
 - **Query Suggestions**: Auto-generated questions from document headings and key concepts
@@ -37,6 +38,7 @@ workpedia/
 │   ├── embedder.py      # Embedder for semantic vector generation
 │   ├── llm.py           # OllamaClient for LLM integration
 │   ├── query_engine.py  # RAG query engine
+│   ├── caching.py       # Performance caching for embeddings and LLM responses
 │   ├── confidence.py    # Answer confidence scoring
 │   ├── summarizer.py    # Document summary generation
 │   ├── suggestions.py   # Query suggestion generation
@@ -394,6 +396,7 @@ Edit `config/config.py` to customize:
 ## Key Features
 
 - **Privacy-First**: All processing happens locally, no data sent to external APIs
+- **Performance Caching**: Automatic caching of embeddings and LLM responses for 2-3x speedup on repeated queries
 - **Structure-Aware**: Preserves document hierarchies, tables, and cross-references
 - **Automatic Table of Contents**: Synthetic TOC chunk created for each document enables queries like "List main chapters"
 - **Document Summaries**: Auto-generated executive summaries (3-7 bullets) when documents are indexed

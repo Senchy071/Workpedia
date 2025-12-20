@@ -50,6 +50,9 @@ chroma_db/
 *.db
 *.sqlite3
 
+# Cache
+cache/
+
 # Data
 data/input/*
 !data/input/.gitkeep

@@ -14,8 +14,9 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 | 4 | Export Functionality      | ✅ Complete  | `storage/history_store.py`, `api/endpoints.py`  |
 | 5 | Query Suggestions         | ✅ Complete  | `core/suggestions.py`                           |
 | 6 | Hybrid Search             | ✅ Complete  | `core/hybrid_search.py`                         |
+| 18| Performance Caching       | ✅ Complete  | `core/caching.py`                               |
 
-**Progress**: 6/6 HIGH PRIORITY features implemented
+**Progress**: 6/6 HIGH PRIORITY features + Performance Caching implemented
 
 ---
 
@@ -315,7 +316,7 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 
 ---
 
-### 18. Performance Caching
+### 18. Performance Caching ✅ IMPLEMENTED
 **Why**: Repeated queries are slow
 
 **Features:**
@@ -324,6 +325,20 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 - TTL-based cache eviction (1 hour default)
 - Save ~2-3 seconds per cached query
 - Use `diskcache` library (local, no Redis needed)
+
+**Implementation:**
+- `core/caching.py`: EmbeddingCache and LLMCache with TTL support
+- Integrated into Embedder (query embeddings cached automatically)
+- Integrated into QueryEngine (LLM responses cached with context)
+- Configurable in `config/config.py` (enabled by default, 1 hour TTL)
+- Cache statistics and clearing methods available
+- Cache directory automatically ignored in `.gitignore`
+
+**Configuration:**
+- `CACHE_ENABLED`: Enable/disable caching (default: True)
+- `CACHE_DIR`: Cache storage directory (default: `cache/`)
+- `CACHE_EMBEDDING_TTL`: Embedding cache TTL in seconds (default: 3600)
+- `CACHE_LLM_TTL`: LLM response cache TTL in seconds (default: 3600)
 
 **Effort**: Low | **Impact**: Medium
 
