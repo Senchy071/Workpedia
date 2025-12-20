@@ -71,6 +71,7 @@ Production Settings:
 
 Feature Settings:
 - Performance Caching: Enabled by default, 1 hour TTL for embeddings and LLM responses
+- Vector Store Backup: Enabled by default, max 10 backups, compressed format
 - Confidence Scoring: Enabled by default, thresholds (HIGH: 0.75, MEDIUM: 0.50)
 - Document Summaries: Enabled by default, 5 bullets, 15000 char input limit
 - Query Suggestions: Enabled by default, max 15 per document, min heading length 5
@@ -221,7 +222,7 @@ timeout 30 ollama run mistral "test prompt"
   - System stats and health checks
   - OpenAPI documentation at /docs
 
-**Additional Features** (6 HIGH PRIORITY + PERFORMANCE CACHING COMPLETE):
+**Additional Features** (6 HIGH PRIORITY + BACKUP + CACHING COMPLETE):
 
 1. `storage/history_store.py`: Query History & Bookmarks
    - Persistent SQLite storage of all queries
@@ -264,6 +265,14 @@ timeout 30 ollama run mistral "test prompt"
    - Integrated into Embedder and QueryEngine automatically
    - Cache statistics and clearing methods available
 
+8. `storage/backup.py`: Vector Store Backup & Restore
+   - Full vector store backups with versioning
+   - Compressed (tar.gz) and uncompressed formats
+   - Backup retention policies (max backups, automatic cleanup)
+   - One-click restore with validation
+   - API endpoints for backup management
+   - 24 comprehensive tests (all passing)
+
 **Large Document Strategy** (Split-Process-Merge):
 
 1. PDFSplitter splits large PDFs into 75-page chunks
@@ -298,6 +307,7 @@ pytest tests/test_summarizer.py -v        # Document summaries
 pytest tests/test_suggestions.py -v       # Query suggestions
 pytest tests/test_hybrid_search.py -v     # Hybrid search
 pytest tests/test_caching.py -v           # Performance caching
+pytest tests/test_backup.py -v            # Vector store backup
 
 # Run integration tests
 pytest tests/test_integration.py -v

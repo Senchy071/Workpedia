@@ -121,3 +121,10 @@ CACHE_ENABLED = True  # Enable caching for embeddings and LLM responses
 CACHE_DIR = PROJECT_ROOT / "cache"  # Base directory for cache storage
 CACHE_EMBEDDING_TTL = 3600  # Embedding cache TTL in seconds (default: 1 hour)
 CACHE_LLM_TTL = 3600  # LLM response cache TTL in seconds (default: 1 hour)
+
+# Backup settings
+BACKUP_ENABLED = True  # Enable backup functionality
+BACKUP_DIR = DATA_DIR / "backups"  # Directory for vector store backups
+BACKUP_MAX_BACKUPS = 10  # Maximum number of backups to retain (0 = unlimited)
+BACKUP_COMPRESS = True  # Compress backups using tar.gz (saves space)
+BACKUP_AUTO_BACKUP_ON_INDEX = False  # Automatically backup before indexing new docs

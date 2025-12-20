@@ -1071,6 +1071,193 @@ async def get_resilience_stats():
 
 
 # =============================================================================
+# Backup Endpoints
+# =============================================================================
+
+
+@app.post("/backup/create", tags=["Backup"])
+async def create_backup(
+    description: str = Query("", description="Backup description"),
+    backup_name: Optional[str] = Query(None, description="Custom backup name"),
+):
+    """
+    Create a full backup of the vector store.
+
+    Returns path to created backup file.
+    """
+    try:
+        from config.config import BACKUP_DIR, BACKUP_MAX_BACKUPS, BACKUP_COMPRESS, CHROMA_PERSIST_DIR
+        from storage.backup import BackupManager
+
+        manager = BackupManager(
+            chroma_dir=CHROMA_PERSIST_DIR,
+            backup_dir=BACKUP_DIR,
+            max_backups=BACKUP_MAX_BACKUPS,
+            compress=BACKUP_COMPRESS,
+        )
+
+        backup_path = manager.create_backup(
+            description=description,
+            backup_name=backup_name,
+        )
+
+        return {
+            "status": "success",
+            "backup_path": str(backup_path),
+            "message": f"Backup created successfully: {backup_path.name}",
+        }
+    except Exception as e:
+        logger.error(f"Backup creation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/backup/list", tags=["Backup"])
+async def list_backups():
+    """
+    List all available backups with metadata.
+
+    Returns list of backups sorted by creation date (newest first).
+    """
+    try:
+        from config.config import BACKUP_DIR, BACKUP_MAX_BACKUPS, BACKUP_COMPRESS, CHROMA_PERSIST_DIR
+        from storage.backup import BackupManager
+
+        manager = BackupManager(
+            chroma_dir=CHROMA_PERSIST_DIR,
+            backup_dir=BACKUP_DIR,
+            max_backups=BACKUP_MAX_BACKUPS,
+            compress=BACKUP_COMPRESS,
+        )
+
+        backups = manager.list_backups()
+
+        return {
+            "status": "success",
+            "backups": backups,
+            "count": len(backups),
+        }
+    except Exception as e:
+        logger.error(f"List backups failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/backup/restore", tags=["Backup"])
+async def restore_backup(
+    backup_name: str = Query(..., description="Backup name to restore"),
+    force: bool = Query(False, description="Force restore (overwrite existing data)"),
+):
+    """
+    Restore vector store from backup.
+
+    WARNING: This will replace the current vector store data.
+    Use force=true to confirm the operation.
+    """
+    try:
+        from config.config import BACKUP_DIR, BACKUP_MAX_BACKUPS, BACKUP_COMPRESS, CHROMA_PERSIST_DIR
+        from storage.backup import BackupManager
+
+        manager = BackupManager(
+            chroma_dir=CHROMA_PERSIST_DIR,
+            backup_dir=BACKUP_DIR,
+            max_backups=BACKUP_MAX_BACKUPS,
+            compress=BACKUP_COMPRESS,
+        )
+
+        # Find backup by name
+        backups = manager.list_backups()
+        backup_path = None
+        for backup in backups:
+            if backup["backup_name"] == backup_name or Path(backup["path"]).name == backup_name:
+                backup_path = Path(backup["path"])
+                break
+
+        if not backup_path:
+            raise HTTPException(status_code=404, detail=f"Backup not found: {backup_name}")
+
+        manager.restore_backup(backup_path, force=force)
+
+        return {
+            "status": "success",
+            "message": f"Backup restored successfully: {backup_name}",
+            "note": "Please restart the service to reload the vector store.",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Backup restore failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/backup/delete/{backup_name}", tags=["Backup"])
+async def delete_backup(backup_name: str):
+    """
+    Delete a specific backup.
+
+    This action cannot be undone.
+    """
+    try:
+        from config.config import BACKUP_DIR, BACKUP_MAX_BACKUPS, BACKUP_COMPRESS, CHROMA_PERSIST_DIR
+        from storage.backup import BackupManager
+
+        manager = BackupManager(
+            chroma_dir=CHROMA_PERSIST_DIR,
+            backup_dir=BACKUP_DIR,
+            max_backups=BACKUP_MAX_BACKUPS,
+            compress=BACKUP_COMPRESS,
+        )
+
+        # Find backup by name
+        backups = manager.list_backups()
+        backup_path = None
+        for backup in backups:
+            if backup["backup_name"] == backup_name or Path(backup["path"]).name == backup_name:
+                backup_path = Path(backup["path"])
+                break
+
+        if not backup_path:
+            raise HTTPException(status_code=404, detail=f"Backup not found: {backup_name}")
+
+        manager.delete_backup(backup_path)
+
+        return {
+            "status": "success",
+            "message": f"Backup deleted successfully: {backup_name}",
+        }
+    except Exception as e:
+        logger.error(f"Backup deletion failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/backup/stats", tags=["Backup"])
+async def get_backup_stats():
+    """
+    Get backup statistics.
+
+    Returns information about total backups, size, and retention settings.
+    """
+    try:
+        from config.config import BACKUP_DIR, BACKUP_MAX_BACKUPS, BACKUP_COMPRESS, CHROMA_PERSIST_DIR
+        from storage.backup import BackupManager
+
+        manager = BackupManager(
+            chroma_dir=CHROMA_PERSIST_DIR,
+            backup_dir=BACKUP_DIR,
+            max_backups=BACKUP_MAX_BACKUPS,
+            compress=BACKUP_COMPRESS,
+        )
+
+        stats = manager.get_backup_stats()
+
+        return {
+            "status": "success",
+            "stats": stats,
+        }
+    except Exception as e:
+        logger.error(f"Backup stats failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
 # History Endpoints
 # =============================================================================
 

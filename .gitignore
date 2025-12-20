@@ -59,6 +59,7 @@ data/input/*
 data/output/*
 !data/output/.gitkeep
 data/bm25_index.json
+data/backups/
 
 # Logs
 *.log

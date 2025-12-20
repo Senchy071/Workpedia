@@ -14,9 +14,10 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 | 4 | Export Functionality      | ✅ Complete  | `storage/history_store.py`, `api/endpoints.py`  |
 | 5 | Query Suggestions         | ✅ Complete  | `core/suggestions.py`                           |
 | 6 | Hybrid Search             | ✅ Complete  | `core/hybrid_search.py`                         |
+| 16| Vector Store Backup       | ✅ Complete  | `storage/backup.py`                             |
 | 18| Performance Caching       | ✅ Complete  | `core/caching.py`                               |
 
-**Progress**: 6/6 HIGH PRIORITY features + Performance Caching implemented
+**Progress**: 6/6 HIGH PRIORITY + Backup + Caching implemented
 
 ---
 
@@ -288,14 +289,37 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 
 ## 🔧 OPERATIONAL IMPROVEMENTS
 
-### 16. Vector Store Backup & Restore
+### 16. Vector Store Backup & Restore ✅ IMPLEMENTED
 **Why**: ChromaDB data is critical
 
 **Features:**
-- Scheduled backups (daily/weekly)
+- Full vector store backups with versioning
+- Compressed (tar.gz) and uncompressed backup formats
 - One-click restore from backup
-- Export vector store to portable format
-- Disaster recovery plan
+- Backup retention policies (configurable max backups)
+- Backup validation and integrity checking
+- Export metadata to JSON
+- Disaster recovery support
+
+**Implementation:**
+- `storage/backup.py`: BackupManager with full backup/restore lifecycle
+- Integrated into API with `/backup/*` endpoints
+- Configurable in `config/config.py`
+- 24 comprehensive tests (all passing)
+
+**Configuration:**
+- `BACKUP_ENABLED`: Enable backup functionality (default: True)
+- `BACKUP_DIR`: Backup storage directory (default: `data/backups/`)
+- `BACKUP_MAX_BACKUPS`: Maximum backups to retain (default: 10, 0=unlimited)
+- `BACKUP_COMPRESS`: Compress backups using tar.gz (default: True)
+- `BACKUP_AUTO_BACKUP_ON_INDEX`: Auto-backup before indexing (default: False)
+
+**API Endpoints:**
+- `POST /backup/create` - Create a full backup
+- `GET /backup/list` - List all backups with metadata
+- `POST /backup/restore` - Restore from backup
+- `DELETE /backup/delete/{backup_name}` - Delete a backup
+- `GET /backup/stats` - Get backup statistics
 
 **Effort**: Low | **Impact**: High (risk mitigation)
 

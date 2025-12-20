@@ -12,6 +12,7 @@ Workpedia is a privacy-focused RAG application that processes complex documents 
 - **Embeddings**: sentence-transformers/all-mpnet-base-v2 for high-quality semantic representations
 - **LLM Generation**: Ollama + Mistral 7B for local, privacy-preserving text generation
 - **Performance Caching**: Intelligent caching of embeddings and LLM responses for 2-3x speedup on repeated queries
+- **Vector Store Backup**: Automated backup and restore with versioning, compression, and retention policies
 - **Confidence Scoring**: Answer reliability indicators (🟢 High / 🟡 Medium / 🔴 Low) based on source quality
 - **Document Summaries**: Auto-generated executive summaries with 3-7 bullet points per document
 - **Query Suggestions**: Auto-generated questions from document headings and key concepts
@@ -54,7 +55,8 @@ workpedia/
 │   └── image_processor.py
 ├── storage/             # Vector store and metadata
 │   ├── vector_store.py  # ChromaDB vector store interface
-│   └── history_store.py # Query history and bookmarks storage
+│   ├── history_store.py # Query history and bookmarks storage
+│   └── backup.py        # Vector store backup and restore
 ├── api/                 # API endpoints and query interface
 │   └── endpoints.py     # FastAPI REST API
 ├── app.py               # Streamlit web UI
@@ -275,6 +277,11 @@ API Endpoints:
 - `GET /bookmarks/{bookmark_id}` - Get specific bookmark
 - `PUT /bookmarks/{bookmark_id}` - Update bookmark
 - `DELETE /bookmarks/{bookmark_id}` - Delete bookmark
+- `POST /backup/create` - Create vector store backup
+- `GET /backup/list` - List all backups
+- `POST /backup/restore` - Restore from backup
+- `DELETE /backup/delete/{backup_name}` - Delete backup
+- `GET /backup/stats` - Get backup statistics
 - `GET /health` - Health check
 - `GET /stats` - System statistics
 
@@ -397,6 +404,7 @@ Edit `config/config.py` to customize:
 
 - **Privacy-First**: All processing happens locally, no data sent to external APIs
 - **Performance Caching**: Automatic caching of embeddings and LLM responses for 2-3x speedup on repeated queries
+- **Vector Store Backup**: Full backup and restore with compression, versioning, and retention policies for data protection
 - **Structure-Aware**: Preserves document hierarchies, tables, and cross-references
 - **Automatic Table of Contents**: Synthetic TOC chunk created for each document enables queries like "List main chapters"
 - **Document Summaries**: Auto-generated executive summaries (3-7 bullets) when documents are indexed

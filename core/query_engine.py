@@ -10,11 +10,11 @@ from core.embedder import Embedder
 from core.exceptions import InvalidParameterError, InvalidQueryError
 from core.llm import RAG_SYSTEM_PROMPT, OllamaClient, format_rag_prompt
 from core.validators import validate_document_id, validate_query, validate_query_params
-from storage.vector_store import VectorStore
 
 if TYPE_CHECKING:
     from core.hybrid_search import HybridSearcher
     from storage.history_store import HistoryStore
+    from storage.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ class QueryEngine:
 
     def __init__(
         self,
-        vector_store: Optional[VectorStore] = None,
+        vector_store: Optional["VectorStore"] = None,
         embedder: Optional[Embedder] = None,
         llm: Optional[OllamaClient] = None,
         n_results: int = 5,
@@ -98,7 +98,10 @@ class QueryEngine:
             hybrid_searcher: HybridSearcher for combined semantic + keyword search
             enable_hybrid_search: Enable hybrid search (semantic + BM25 + RRF)
         """
-        self.vector_store = vector_store or VectorStore()
+        if vector_store is None:
+            from storage.vector_store import VectorStore
+            vector_store = VectorStore()
+        self.vector_store = vector_store
         self.embedder = embedder or Embedder()
         self.llm = llm or OllamaClient()
         self.n_results = n_results
