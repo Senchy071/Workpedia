@@ -128,3 +128,9 @@ BACKUP_DIR = DATA_DIR / "backups"  # Directory for vector store backups
 BACKUP_MAX_BACKUPS = 10  # Maximum number of backups to retain (0 = unlimited)
 BACKUP_COMPRESS = True  # Compress backups using tar.gz (saves space)
 BACKUP_AUTO_BACKUP_ON_INDEX = False  # Automatically backup before indexing new docs
+
+# Cross-encoder reranking settings
+RERANKER_ENABLED = True  # Enable cross-encoder reranking for improved answer quality
+RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Fast, accurate cross-encoder
+RERANKER_TOP_N = 20  # Number of candidates to retrieve for reranking
+RERANKER_TOP_K = 5  # Number of results to return after reranking

@@ -4,7 +4,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional
 
-from config.config import CONFIDENCE_ENABLED, HISTORY_AUTO_SAVE, HYBRID_SEARCH_ENABLED
+from config.config import (
+    CONFIDENCE_ENABLED,
+    HISTORY_AUTO_SAVE,
+    HYBRID_SEARCH_ENABLED,
+    RERANKER_ENABLED,
+)
 from core.confidence import ConfidenceScore, ConfidenceScorer
 from core.embedder import Embedder
 from core.exceptions import InvalidParameterError, InvalidQueryError
@@ -13,6 +18,7 @@ from core.validators import validate_document_id, validate_query, validate_query
 
 if TYPE_CHECKING:
     from core.hybrid_search import HybridSearcher
+    from core.reranker import CrossEncoderReranker
     from storage.history_store import HistoryStore
     from storage.vector_store import VectorStore
 
@@ -81,6 +87,8 @@ class QueryEngine:
         confidence_scorer: Optional[ConfidenceScorer] = None,
         hybrid_searcher: Optional["HybridSearcher"] = None,
         enable_hybrid_search: bool = HYBRID_SEARCH_ENABLED,
+        reranker: Optional["CrossEncoderReranker"] = None,
+        enable_reranking: bool = RERANKER_ENABLED,
     ):
         """
         Initialize query engine.
@@ -97,6 +105,8 @@ class QueryEngine:
             confidence_scorer: ConfidenceScorer instance (creates default if None)
             hybrid_searcher: HybridSearcher for combined semantic + keyword search
             enable_hybrid_search: Enable hybrid search (semantic + BM25 + RRF)
+            reranker: CrossEncoderReranker for improved ranking (optional)
+            enable_reranking: Enable cross-encoder reranking for better quality
         """
         if vector_store is None:
             from storage.vector_store import VectorStore
@@ -111,6 +121,7 @@ class QueryEngine:
         self.enable_confidence = enable_confidence
         self.confidence_scorer = confidence_scorer or ConfidenceScorer()
         self.enable_hybrid_search = enable_hybrid_search
+        self.enable_reranking = enable_reranking
 
         # Initialize hybrid searcher if enabled
         if hybrid_searcher is None and enable_hybrid_search:
@@ -122,10 +133,18 @@ class QueryEngine:
 
         self.hybrid_searcher = hybrid_searcher
 
+        # Initialize reranker if enabled
+        if reranker is None and enable_reranking:
+            from core.reranker import CrossEncoderReranker
+
+            reranker = CrossEncoderReranker()
+
+        self.reranker = reranker
+
         logger.info(
             f"QueryEngine initialized: n_results={n_results}, temperature={temperature}, "
             f"auto_save_history={auto_save_history}, enable_confidence={enable_confidence}, "
-            f"enable_hybrid_search={enable_hybrid_search}"
+            f"enable_hybrid_search={enable_hybrid_search}, enable_reranking={enable_reranking}"
         )
 
     def query(
@@ -373,8 +392,9 @@ class QueryEngine:
         n_results: int,
         doc_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Retrieve relevant chunks."""
-        chunks = []
+        """Retrieve relevant chunks with optional reranking."""
+        special_chunks = []  # Chunks from special queries (summary, TOC) - not reranked
+        search_chunks = []  # Chunks from search - will be reranked
         question_lower = question.lower()
 
         # Check if this is a summary/overview query
@@ -418,7 +438,7 @@ class QueryEngine:
                     summary_results["documents"],
                     summary_results["metadatas"],
                 ):
-                    chunks.append(
+                    special_chunks.append(
                         {
                             "chunk_id": chunk_id,
                             "content": content,
@@ -426,7 +446,7 @@ class QueryEngine:
                             "similarity": 1.0,  # Perfect match for explicit summary request
                         }
                     )
-                logger.info(f"Summary query detected, retrieved {len(chunks)} summary chunk(s)")
+                logger.info(f"Summary query detected, retrieved {len(special_chunks)} summary chunk(s)")
 
         # Check if this is a TOC-related query
         # Semantic search fails for TOC because the detailed TOC chunk embedding
@@ -460,14 +480,14 @@ class QueryEngine:
             )
 
             if toc_results["ids"]:
-                existing_ids = {c["chunk_id"] for c in chunks}
+                existing_ids = {c["chunk_id"] for c in special_chunks}
                 for chunk_id, content, metadata in zip(
                     toc_results["ids"],
                     toc_results["documents"],
                     toc_results["metadatas"],
                 ):
                     if chunk_id not in existing_ids:
-                        chunks.append(
+                        special_chunks.append(
                             {
                                 "chunk_id": chunk_id,
                                 "content": content,
@@ -475,11 +495,18 @@ class QueryEngine:
                                 "similarity": 1.0,  # Perfect match for explicit TOC request
                             }
                         )
-                logger.info(f"TOC query detected, retrieved {len(chunks)} TOC chunk(s)")
+                logger.info(f"TOC query detected, retrieved {len(special_chunks)} TOC chunk(s)")
 
         # Fill remaining slots with search (hybrid or semantic-only)
-        remaining_slots = n_results - len(chunks)
+        remaining_slots = n_results - len(special_chunks)
         if remaining_slots > 0:
+            # Determine how many candidates to retrieve
+            # If reranking is enabled, retrieve more candidates for better reranking
+            if self.enable_reranking and self.reranker:
+                retrieval_count = self.reranker.get_retrieval_count()
+            else:
+                retrieval_count = remaining_slots * 2  # Get extra for hybrid fusion
+
             # Generate query embedding
             query_embedding = self.embedder.embed(question)
 
@@ -487,7 +514,7 @@ class QueryEngine:
             where = {"doc_id": doc_id} if doc_id else None
             results = self.vector_store.query(
                 query_embedding=query_embedding,
-                n_results=remaining_slots * 2,  # Get extra for hybrid fusion
+                n_results=retrieval_count,
                 where=where,
             )
 
@@ -508,15 +535,15 @@ class QueryEngine:
                 hybrid_results = self.hybrid_searcher.search(
                     query=question,
                     semantic_results=semantic_results,
-                    n_results=remaining_slots + len(chunks),
+                    n_results=retrieval_count,
                     doc_id=doc_id,
                 )
 
-                # Add hybrid results, skipping any already added
-                existing_ids = {c["chunk_id"] for c in chunks}
+                # Convert hybrid results to dict format
+                existing_ids = {c["chunk_id"] for c in special_chunks}
                 for result in hybrid_results:
-                    if result.chunk_id not in existing_ids and len(chunks) < n_results:
-                        chunks.append(
+                    if result.chunk_id not in existing_ids:
+                        search_chunks.append(
                             {
                                 "chunk_id": result.chunk_id,
                                 "content": result.content,
@@ -528,17 +555,37 @@ class QueryEngine:
                         )
                 logger.debug(
                     f"Hybrid search returned {len(hybrid_results)} results, "
-                    f"added {len(chunks)} after filtering"
+                    f"added {len(search_chunks)} after filtering"
                 )
             else:
                 # Semantic-only search
-                existing_ids = {c["chunk_id"] for c in chunks}
+                existing_ids = {c["chunk_id"] for c in special_chunks}
                 for result in semantic_results:
                     chunk_id = result["chunk_id"]
-                    if chunk_id not in existing_ids and len(chunks) < n_results:
-                        chunks.append(result)
+                    if chunk_id not in existing_ids:
+                        search_chunks.append(result)
 
-        return chunks
+            # Apply reranking if enabled
+            if self.enable_reranking and self.reranker and search_chunks:
+                logger.info(f"Reranking {len(search_chunks)} candidates...")
+                reranked, scores = self.reranker.rerank_with_scores(
+                    query=question,
+                    chunks=search_chunks,
+                    top_k=remaining_slots,
+                )
+                # Update similarity scores with rerank scores
+                for chunk, score in zip(reranked, scores):
+                    chunk["rerank_score"] = score
+                    # Keep original similarity but add rerank info
+                search_chunks = reranked
+                logger.info(f"Reranking complete, returning top {len(search_chunks)} results")
+            else:
+                # No reranking - just take top remaining_slots
+                search_chunks = search_chunks[:remaining_slots]
+
+        # Combine special chunks (first) with search chunks
+        chunks = special_chunks + search_chunks
+        return chunks[:n_results]
 
     def _generate(
         self,

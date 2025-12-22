@@ -142,6 +142,7 @@ class HistoryStore:
         """Create database schema if not exists."""
         try:
             conn = sqlite3.connect(self.db_path)
+            conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints for CASCADE
             conn.execute("PRAGMA journal_mode=WAL")  # Write-Ahead Logging for better concurrency
             conn.execute("PRAGMA synchronous=NORMAL")  # Faster writes
 
@@ -205,6 +206,7 @@ class HistoryStore:
     def _get_connection(self) -> sqlite3.Connection:
         """Get database connection with row factory."""
         conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints for CASCADE
         conn.row_factory = sqlite3.Row
         return conn
 

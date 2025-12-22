@@ -429,7 +429,7 @@ def test_export_queries_markdown(history_store):
     assert "Test Export" in markdown
     assert "Q1" in markdown
     assert "Q2" in markdown
-    assert "Total Queries: 2" in markdown
+    assert "Total Queries:** 2" in markdown  # Markdown format: **Total Queries:** 2
 
 
 def test_export_queries_json(history_store):

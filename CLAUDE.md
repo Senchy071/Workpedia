@@ -76,6 +76,7 @@ Feature Settings:
 - Document Summaries: Enabled by default, 5 bullets, 15000 char input limit
 - Query Suggestions: Enabled by default, max 15 per document, min heading length 5
 - Hybrid Search: Enabled by default, semantic weight 0.7, keyword weight 0.3, RRF k=60
+- Cross-Encoder Reranking: Enabled by default, top 20 candidates, return top 5
 - Query History: Auto-save enabled, session tracking enabled
 
 ## Development Commands
@@ -222,7 +223,7 @@ timeout 30 ollama run mistral "test prompt"
   - System stats and health checks
   - OpenAPI documentation at /docs
 
-**Additional Features** (6 HIGH PRIORITY + BACKUP + CACHING COMPLETE):
+**Additional Features** (6 HIGH PRIORITY + RERANKING + BACKUP + CACHING COMPLETE):
 
 1. `storage/history_store.py`: Query History & Bookmarks
    - Persistent SQLite storage of all queries
@@ -273,6 +274,14 @@ timeout 30 ollama run mistral "test prompt"
    - API endpoints for backup management
    - 24 comprehensive tests (all passing)
 
+9. `core/reranker.py`: Cross-Encoder Reranking
+   - Re-rank search results using cross-encoder for improved quality
+   - Uses cross-encoder/ms-marco-MiniLM-L-6-v2 (fast, accurate)
+   - Retrieves top 20 candidates, returns top 5 after reranking
+   - Lazy model loading (loads on first use)
+   - Integrated into QueryEngine automatically
+   - 27 comprehensive tests (all passing)
+
 **Large Document Strategy** (Split-Process-Merge):
 
 1. PDFSplitter splits large PDFs into 75-page chunks
@@ -308,6 +317,7 @@ pytest tests/test_suggestions.py -v       # Query suggestions
 pytest tests/test_hybrid_search.py -v     # Hybrid search
 pytest tests/test_caching.py -v           # Performance caching
 pytest tests/test_backup.py -v            # Vector store backup
+pytest tests/test_reranker.py -v          # Cross-encoder reranking
 
 # Run integration tests
 pytest tests/test_integration.py -v

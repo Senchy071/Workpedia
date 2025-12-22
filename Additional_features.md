@@ -14,10 +14,11 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 | 4 | Export Functionality      | ✅ Complete  | `storage/history_store.py`, `api/endpoints.py`  |
 | 5 | Query Suggestions         | ✅ Complete  | `core/suggestions.py`                           |
 | 6 | Hybrid Search             | ✅ Complete  | `core/hybrid_search.py`                         |
+| 8 | Cross-Encoder Reranking   | ✅ Complete  | `core/reranker.py`                              |
 | 16| Vector Store Backup       | ✅ Complete  | `storage/backup.py`                             |
 | 18| Performance Caching       | ✅ Complete  | `core/caching.py`                               |
 
-**Progress**: 6/6 HIGH PRIORITY + Backup + Caching implemented
+**Progress**: 6/6 HIGH PRIORITY + Reranking + Backup + Caching implemented
 
 ---
 
@@ -172,7 +173,7 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 
 ---
 
-### 8. Re-ranking with Cross-Encoder
+### 8. Re-ranking with Cross-Encoder ✅ IMPLEMENTED
 **Why**: Initial retrieval may miss the most relevant chunks
 
 **Features:**
@@ -180,6 +181,21 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 - Models: `cross-encoder/ms-marco-MiniLM-L-6-v2` (fast, local)
 - Return top 5 re-ranked chunks to LLM
 - Improves answer quality significantly
+- Lazy model loading (loads on first use)
+- Configurable top-N retrieval and top-K return counts
+- Detailed rank change logging for debugging
+
+**Implementation:**
+- `core/reranker.py`: CrossEncoderReranker with lazy loading
+- Integrated into QueryEngine (automatic reranking during retrieval)
+- Configurable in `config/config.py`
+- 27 comprehensive tests (all passing)
+
+**Configuration:**
+- `RERANKER_ENABLED`: Enable/disable reranking (default: True)
+- `RERANKER_MODEL`: Cross-encoder model (default: ms-marco-MiniLM-L-6-v2)
+- `RERANKER_TOP_N`: Candidates to retrieve for reranking (default: 20)
+- `RERANKER_TOP_K`: Results to return after reranking (default: 5)
 
 **Effort**: Medium | **Impact**: High
 

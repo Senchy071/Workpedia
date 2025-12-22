@@ -305,6 +305,7 @@ class TestQueryEngine:
         mock.is_available.return_value = True
         mock.list_models.return_value = ["mistral"]
         mock.model = "mistral"
+        mock._cache = None  # Disable LLM caching in tests
         return mock
 
     def test_query_engine_initialization(self, mock_vector_store, mock_embedder, mock_llm):
@@ -327,6 +328,10 @@ class TestQueryEngine:
             vector_store=mock_vector_store,
             embedder=mock_embedder,
             llm=mock_llm,
+            enable_reranking=False,
+            enable_hybrid_search=False,
+            enable_confidence=False,
+            auto_save_history=False,
         )
 
         result = engine.query("What is the content about?")
@@ -342,6 +347,10 @@ class TestQueryEngine:
             vector_store=mock_vector_store,
             embedder=mock_embedder,
             llm=mock_llm,
+            enable_reranking=False,
+            enable_hybrid_search=False,
+            enable_confidence=False,
+            auto_save_history=False,
         )
 
         engine.query("Question?", doc_id="specific-doc")
@@ -359,11 +368,22 @@ class TestQueryEngine:
             "metadatas": [],
             "distances": [],
         }
+        # Mock the _collection.get for special query detection (summary/TOC)
+        mock_store._collection = Mock()
+        mock_store._collection.get.return_value = {
+            "ids": [],
+            "documents": [],
+            "metadatas": [],
+        }
 
         engine = QueryEngine(
             vector_store=mock_store,
             embedder=mock_embedder,
             llm=mock_llm,
+            enable_reranking=False,
+            enable_hybrid_search=False,
+            enable_confidence=False,
+            auto_save_history=False,
         )
 
         result = engine.query("Unknown question?")
@@ -373,10 +393,22 @@ class TestQueryEngine:
 
     def test_get_similar_chunks(self, mock_vector_store, mock_embedder, mock_llm):
         """Test get_similar_chunks method."""
+        # Mock the _collection.get for special query detection (summary/TOC)
+        mock_vector_store._collection = Mock()
+        mock_vector_store._collection.get.return_value = {
+            "ids": [],
+            "documents": [],
+            "metadatas": [],
+        }
+
         engine = QueryEngine(
             vector_store=mock_vector_store,
             embedder=mock_embedder,
             llm=mock_llm,
+            enable_reranking=False,
+            enable_hybrid_search=False,
+            enable_confidence=False,
+            auto_save_history=False,
         )
 
         chunks = engine.get_similar_chunks("Test query", n_results=3)
@@ -392,6 +424,10 @@ class TestQueryEngine:
             vector_store=mock_vector_store,
             embedder=mock_embedder,
             llm=mock_llm,
+            enable_reranking=False,
+            enable_hybrid_search=False,
+            enable_confidence=False,
+            auto_save_history=False,
         )
 
         health = engine.health_check()
@@ -418,11 +454,23 @@ class TestAPIEndpoints:
         import api.endpoints as endpoints
         from api.endpoints import app
 
+        # Mock the _collection.get for special query detection (summary/TOC)
+        mock_vector_store._collection = Mock()
+        mock_vector_store._collection.get.return_value = {
+            "ids": [],
+            "documents": [],
+            "metadatas": [],
+        }
+
         # Inject mocks
         endpoints.query_engine = QueryEngine(
             vector_store=mock_vector_store,
             embedder=mock_embedder,
             llm=mock_llm,
+            enable_reranking=False,
+            enable_hybrid_search=False,
+            enable_confidence=False,
+            auto_save_history=False,
         )
 
         return TestClient(app)
@@ -474,6 +522,7 @@ class TestAPIEndpoints:
         mock.is_available.return_value = True
         mock.list_models.return_value = ["mistral"]
         mock.model = "mistral"
+        mock._cache = None  # Disable LLM caching in tests
         return mock
 
     def test_root_endpoint(self, client):
