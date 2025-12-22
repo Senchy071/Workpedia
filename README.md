@@ -4,7 +4,7 @@ Advanced RAG (Retrieval-Augmented Generation) system using state-of-the-art docu
 
 ## Overview
 
-Workpedia is a privacy-focused RAG application that processes complex documents (PDF, DOCX, HTML, images) and enables intelligent question-answering through:
+Workpedia is a privacy-focused RAG application that processes complex documents (PDF, DOCX, XLSX, HTML, images) and enables intelligent question-answering through:
 
 - **Document Processing**: Docling with DocLayNet + TableFormer models for superior layout understanding
 - **Intelligent Chunking**: Semantic/hierarchical chunking that preserves document structure
@@ -54,6 +54,7 @@ workpedia/
 ├── processors/          # Document type-specific processors
 │   ├── pdf_processor.py # PDF processing with auto-fallback
 │   ├── docx_processor.py
+│   ├── xlsx_processor.py # Excel spreadsheet processing
 │   ├── html_processor.py
 │   └── image_processor.py
 ├── storage/             # Vector store and metadata
@@ -64,7 +65,7 @@ workpedia/
 ├── api/                 # API endpoints and query interface
 │   └── endpoints.py     # FastAPI REST API
 ├── app.py               # Streamlit web UI
-├── tests/               # Test files (150+ tests)
+├── tests/               # Test files (380+ tests)
 ├── data/                # Sample data and test documents
 │   ├── input/           # Input documents for testing
 │   └── output/          # Processed output
@@ -365,7 +366,7 @@ Edit `config/config.py` to customize:
 ### Phase 2: Document Processing Foundation - Complete ✓
 
 - [x] Docling-based document parser (V2 + PyPdfium + VLM backends)
-- [x] Multi-format support (PDF, DOCX, HTML, images)
+- [x] Multi-format support (PDF, DOCX, XLSX, HTML, images)
 - [x] Structure analysis with cross-references
 - [x] Table header extraction and multi-page detection
 - [x] Large document handling (split-process-merge)
@@ -432,7 +433,7 @@ Edit `config/config.py` to customize:
 - **Hybrid Search**: Combines semantic + BM25 keyword search using Reciprocal Rank Fusion
 - **Cross-Encoder Reranking**: Re-ranks top candidates using cross-encoder for significantly better quality
 - **Document Collections & Tags**: Organize documents by project/topic, filter queries by collection or tags
-- **Multi-Format**: Supports PDF, DOCX, HTML, and images
+- **Multi-Format**: Supports PDF, DOCX, XLSX/XLS, HTML, and images
 - **Large Document Support**: Automatic chunking for 100+ page documents
 - **Rich Metadata**: Stores page numbers, bounding boxes, and document structure
 - **Robust Fallback**: Automatic backend switching if processing fails

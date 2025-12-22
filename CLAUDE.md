@@ -43,7 +43,7 @@ The codebase follows a modular architecture organized by functional concern:
 ```text
 config/       # Configuration constants (Ollama, embeddings, ChromaDB, chunking)
 core/         # Core RAG components: parser, chunker, embedder
-processors/   # Document type-specific processors (PDF, DOCX, HTML, images)
+processors/   # Document type-specific processors (PDF, DOCX, XLSX, HTML, images)
 storage/      # Vector store interface and metadata management
 api/          # Query interface and API endpoints
 tests/        # Test files
@@ -166,7 +166,7 @@ timeout 30 ollama run mistral "test prompt"
   - Document hierarchy building
 - `core/validator.py`: DocumentValidator for result validation
 - `core/progress_tracker.py`: ProgressTracker for processing monitoring
-- `processors/`: Format-specific processors (PDF, DOCX, HTML, Image)
+- `processors/`: Format-specific processors (PDF, DOCX, XLSX, HTML, Image)
 
 **Production Infrastructure** (ALL COMPLETE):
 
@@ -328,6 +328,7 @@ pytest tests/test_caching.py -v           # Performance caching
 pytest tests/test_backup.py -v            # Vector store backup
 pytest tests/test_reranker.py -v          # Cross-encoder reranking
 pytest tests/test_collections.py -v       # Document collections and tags
+pytest tests/test_xlsx_processor.py -v    # Excel file processing
 
 # Run integration tests
 pytest tests/test_integration.py -v
@@ -354,7 +355,7 @@ python -m api.endpoints --host 0.0.0.0 --port 8080
 - All data must stay local (privacy-first design)
 - Document structure must be preserved through chunking
 - Metadata tracking includes page numbers, bounding boxes, document hierarchy
-- Supports PDF, DOCX, HTML, and image formats
+- Supports PDF, DOCX, XLSX/XLS, HTML, and image formats
 
 **Configuration Customization**:
 All settings centralized in `config/config.py`. Modify these for different models, chunk sizes, or storage locations. The config uses Path objects for cross-platform compatibility.

@@ -686,6 +686,7 @@ async def index_document(request: IndexRequest):
     Index a document from the filesystem.
 
     Parses, chunks, embeds, and stores the document.
+    Supports PDF, DOCX, HTML, TXT, MD, XLSX, and XLS files.
     """
     if document_indexer is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
@@ -695,9 +696,18 @@ async def index_document(request: IndexRequest):
         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
 
     try:
-        # Parse document
-        parser = DocumentParser()
-        parsed_doc = parser.parse(file_path)
+        # Parse document based on file type
+        file_ext = file_path.suffix.lower()
+        if file_ext in [".xlsx", ".xls"]:
+            # Use XLSXProcessor for Excel files
+            from processors.xlsx_processor import XLSXProcessor
+
+            processor = XLSXProcessor()
+            parsed_doc = processor.process(file_path)
+        else:
+            # Use DocumentParser for other formats
+            parser = DocumentParser()
+            parsed_doc = parser.parse(file_path)
 
         # Index
         result = document_indexer.index_document(
@@ -719,13 +729,13 @@ async def upload_and_index(
     """
     Upload and index a document.
 
-    Accepts PDF, DOCX, HTML files.
+    Accepts PDF, DOCX, HTML, TXT, MD, XLSX, and XLS files.
     """
     if document_indexer is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
     # Validate file type
-    allowed_extensions = {".pdf", ".docx", ".html", ".htm", ".txt", ".md"}
+    allowed_extensions = {".pdf", ".docx", ".html", ".htm", ".txt", ".md", ".xlsx", ".xls"}
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in allowed_extensions:
         raise HTTPException(
@@ -764,9 +774,19 @@ async def upload_and_index(
         with open(file_path, "wb") as f:
             f.write(content)
 
-        # Parse and index
-        parser = DocumentParser()
-        parsed_doc = parser.parse(file_path)
+        # Parse document based on file type
+        if file_ext in [".xlsx", ".xls"]:
+            # Use XLSXProcessor for Excel files
+            from processors.xlsx_processor import XLSXProcessor
+
+            processor = XLSXProcessor()
+            parsed_doc = processor.process(file_path)
+        else:
+            # Use DocumentParser for other formats
+            parser = DocumentParser()
+            parsed_doc = parser.parse(file_path)
+
+        # Index the parsed document
         result = document_indexer.index_document(
             parsed_doc,
             replace_existing=replace_existing,
