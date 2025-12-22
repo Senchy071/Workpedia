@@ -77,6 +77,7 @@ Feature Settings:
 - Query Suggestions: Enabled by default, max 15 per document, min heading length 5
 - Hybrid Search: Enabled by default, semantic weight 0.7, keyword weight 0.3, RRF k=60
 - Cross-Encoder Reranking: Enabled by default, top 20 candidates, return top 5
+- Document Collections: Enabled by default, SQLite persistence
 - Query History: Auto-save enabled, session tracking enabled
 
 ## Development Commands
@@ -223,7 +224,7 @@ timeout 30 ollama run mistral "test prompt"
   - System stats and health checks
   - OpenAPI documentation at /docs
 
-**Additional Features** (6 HIGH PRIORITY + RERANKING + BACKUP + CACHING COMPLETE):
+**Additional Features** (6 HIGH PRIORITY + COLLECTIONS + RERANKING + BACKUP + CACHING COMPLETE):
 
 1. `storage/history_store.py`: Query History & Bookmarks
    - Persistent SQLite storage of all queries
@@ -282,6 +283,14 @@ timeout 30 ollama run mistral "test prompt"
    - Integrated into QueryEngine automatically
    - 27 comprehensive tests (all passing)
 
+10. `storage/collections.py`: Document Collections & Tags
+    - Organize documents by project, topic, or category
+    - User-defined tags: project:alpha, type:contract, year:2024
+    - Filter queries by collection or tags
+    - SQLite persistence for collection and tag metadata
+    - Full API for collection and tag management
+    - 36 comprehensive tests (all passing)
+
 **Large Document Strategy** (Split-Process-Merge):
 
 1. PDFSplitter splits large PDFs into 75-page chunks
@@ -318,6 +327,7 @@ pytest tests/test_hybrid_search.py -v     # Hybrid search
 pytest tests/test_caching.py -v           # Performance caching
 pytest tests/test_backup.py -v            # Vector store backup
 pytest tests/test_reranker.py -v          # Cross-encoder reranking
+pytest tests/test_collections.py -v       # Document collections and tags
 
 # Run integration tests
 pytest tests/test_integration.py -v

@@ -18,6 +18,7 @@ Workpedia is a privacy-focused RAG application that processes complex documents 
 - **Query Suggestions**: Auto-generated questions from document headings and key concepts
 - **Hybrid Search**: Semantic + BM25 keyword search combined using Reciprocal Rank Fusion
 - **Cross-Encoder Reranking**: Re-rank top 20 candidates with cross-encoder for significantly improved answer quality
+- **Document Collections & Tags**: Organize documents with collections and user-defined tags for filtered querying
 - **Query History**: Persistent storage of all queries with full context and sources
 - **Bookmarks**: Organize favorite Q&A pairs with notes and tags
 - **Export**: Export queries and answers to Markdown, JSON, or PDF formats
@@ -58,6 +59,7 @@ workpedia/
 ├── storage/             # Vector store and metadata
 │   ├── vector_store.py  # ChromaDB vector store interface
 │   ├── history_store.py # Query history and bookmarks storage
+│   ├── collections.py   # Document collections and tags
 │   └── backup.py        # Vector store backup and restore
 ├── api/                 # API endpoints and query interface
 │   └── endpoints.py     # FastAPI REST API
@@ -284,6 +286,19 @@ API Endpoints:
 - `POST /backup/restore` - Restore from backup
 - `DELETE /backup/delete/{backup_name}` - Delete backup
 - `GET /backup/stats` - Get backup statistics
+- `GET /collections` - List all collections
+- `POST /collections` - Create a collection
+- `GET /collections/{id}` - Get collection details
+- `PUT /collections/{id}` - Update collection
+- `DELETE /collections/{id}` - Delete collection
+- `GET /collections/{id}/documents` - List documents in collection
+- `POST /documents/{doc_id}/collection` - Set document collection
+- `GET /tags` - List all tags with document counts
+- `GET /documents/{doc_id}/tags` - Get document tags
+- `POST /documents/{doc_id}/tags` - Add tags to document
+- `PUT /documents/{doc_id}/tags` - Set (replace) document tags
+- `DELETE /documents/{doc_id}/tags` - Remove tags from document
+- `GET /tags/{tag}/documents` - List documents by tag
 - `GET /health` - Health check
 - `GET /stats` - System statistics
 
@@ -380,6 +395,7 @@ Edit `config/config.py` to customize:
 - [x] **Answer Confidence Scoring**: Reliability indicators based on source quality and agreement
 - [x] **Document Summaries**: Auto-generated executive summaries during indexing
 - [x] **Cross-Encoder Reranking**: Re-rank search results with cross-encoder for improved quality
+- [x] **Document Collections & Tags**: Organize documents with collections and tags for filtered querying
 
 ### Production Improvements - Complete ✓
 
@@ -415,6 +431,7 @@ Edit `config/config.py` to customize:
 - **Query Suggestions**: Auto-generated questions from document structure and headings
 - **Hybrid Search**: Combines semantic + BM25 keyword search using Reciprocal Rank Fusion
 - **Cross-Encoder Reranking**: Re-ranks top candidates using cross-encoder for significantly better quality
+- **Document Collections & Tags**: Organize documents by project/topic, filter queries by collection or tags
 - **Multi-Format**: Supports PDF, DOCX, HTML, and images
 - **Large Document Support**: Automatic chunking for 100+ page documents
 - **Rich Metadata**: Stores page numbers, bounding boxes, and document structure

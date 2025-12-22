@@ -134,3 +134,8 @@ RERANKER_ENABLED = True  # Enable cross-encoder reranking for improved answer qu
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Fast, accurate cross-encoder
 RERANKER_TOP_N = 20  # Number of candidates to retrieve for reranking
 RERANKER_TOP_K = 5  # Number of results to return after reranking
+
+# Document collections settings
+COLLECTIONS_ENABLED = True  # Enable document collections and tags
+COLLECTIONS_DB_DIR = DATA_DIR / "collections_db"
+COLLECTIONS_DB_PATH = str(COLLECTIONS_DB_DIR / "collections.sqlite3")

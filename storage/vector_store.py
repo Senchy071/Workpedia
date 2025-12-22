@@ -93,6 +93,8 @@ class VectorStore:
         chunks: List[Chunk],
         embeddings: List[np.ndarray],
         batch_size: int = 100,
+        collection_name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
     ) -> int:
         """
         Add chunks with their embeddings to the store.
@@ -101,6 +103,8 @@ class VectorStore:
             chunks: List of Chunk objects
             embeddings: List of embedding vectors (same order as chunks)
             batch_size: Batch size for insertion
+            collection_name: Optional collection name to assign to all chunks
+            tags: Optional tags to assign to all chunks (stored as comma-separated)
 
         Returns:
             Number of chunks added
@@ -121,6 +125,9 @@ class VectorStore:
         if not chunks:
             return 0
 
+        # Prepare tags string for ChromaDB (comma-separated for filtering)
+        tags_str = ",".join(sorted(set(t.lower().strip() for t in tags if t.strip()))) if tags else ""
+
         # Prepare data for ChromaDB
         ids = [chunk.chunk_id for chunk in chunks]
         documents = [chunk.content for chunk in chunks]
@@ -133,6 +140,8 @@ class VectorStore:
                 "filename": chunk.metadata.get("filename", ""),
                 "file_path": chunk.metadata.get("file_path", ""),
                 "token_count": chunk.token_count,
+                "collection": collection_name or "",
+                "tags": tags_str,
             }
             for chunk in chunks
         ]
@@ -349,6 +358,192 @@ class VectorStore:
             "documents": len(self.list_documents()),
         }
 
+    def update_document_collection(
+        self,
+        doc_id: str,
+        collection_name: Optional[str],
+    ) -> int:
+        """
+        Update the collection for all chunks of a document.
+
+        Args:
+            doc_id: Document ID
+            collection_name: New collection name (or None/empty to remove)
+
+        Returns:
+            Number of chunks updated
+        """
+        existing = self.get_by_doc_id(doc_id)
+        chunk_ids = existing.get("ids", [])
+
+        if not chunk_ids:
+            return 0
+
+        # Update each chunk's metadata
+        for chunk_id, metadata in zip(chunk_ids, existing.get("metadatas", [])):
+            metadata["collection"] = collection_name or ""
+            self._collection.update(
+                ids=[chunk_id],
+                metadatas=[metadata],
+            )
+
+        logger.info(f"Updated collection for {len(chunk_ids)} chunks of doc {doc_id}")
+        return len(chunk_ids)
+
+    def update_document_tags(
+        self,
+        doc_id: str,
+        tags: List[str],
+    ) -> int:
+        """
+        Update the tags for all chunks of a document.
+
+        Args:
+            doc_id: Document ID
+            tags: New tags list
+
+        Returns:
+            Number of chunks updated
+        """
+        existing = self.get_by_doc_id(doc_id)
+        chunk_ids = existing.get("ids", [])
+
+        if not chunk_ids:
+            return 0
+
+        # Prepare tags string
+        tags_str = ",".join(sorted(set(t.lower().strip() for t in tags if t.strip())))
+
+        # Update each chunk's metadata
+        for chunk_id, metadata in zip(chunk_ids, existing.get("metadatas", [])):
+            metadata["tags"] = tags_str
+            self._collection.update(
+                ids=[chunk_id],
+                metadatas=[metadata],
+            )
+
+        logger.info(f"Updated tags for {len(chunk_ids)} chunks of doc {doc_id}")
+        return len(chunk_ids)
+
+    def list_documents_by_collection(self, collection_name: str) -> List[Dict[str, Any]]:
+        """
+        List all documents in a specific collection.
+
+        Args:
+            collection_name: Collection name to filter by
+
+        Returns:
+            List of document info dicts
+        """
+        all_data = self._collection.get(
+            where={"collection": collection_name},
+            include=["metadatas"],
+        )
+
+        # Group by doc_id
+        docs = {}
+        for metadata in all_data.get("metadatas", []):
+            doc_id = metadata.get("doc_id", "unknown")
+            if doc_id not in docs:
+                docs[doc_id] = {
+                    "doc_id": doc_id,
+                    "filename": metadata.get("filename", ""),
+                    "file_path": metadata.get("file_path", ""),
+                    "collection": metadata.get("collection", ""),
+                    "tags": metadata.get("tags", ""),
+                    "chunk_count": 0,
+                }
+            docs[doc_id]["chunk_count"] += 1
+
+        return list(docs.values())
+
+    def list_documents_by_tag(self, tag: str) -> List[Dict[str, Any]]:
+        """
+        List all documents that have a specific tag.
+
+        Args:
+            tag: Tag to filter by
+
+        Returns:
+            List of document info dicts
+        """
+        tag = tag.lower().strip()
+
+        # Get all chunks and filter by tag (ChromaDB doesn't support contains for strings)
+        all_data = self._collection.get(include=["metadatas"])
+
+        # Group by doc_id, filtering by tag
+        docs = {}
+        for metadata in all_data.get("metadatas", []):
+            tags_str = metadata.get("tags", "")
+            tags_list = [t.strip() for t in tags_str.split(",") if t.strip()]
+
+            if tag in tags_list:
+                doc_id = metadata.get("doc_id", "unknown")
+                if doc_id not in docs:
+                    docs[doc_id] = {
+                        "doc_id": doc_id,
+                        "filename": metadata.get("filename", ""),
+                        "file_path": metadata.get("file_path", ""),
+                        "collection": metadata.get("collection", ""),
+                        "tags": tags_str,
+                        "chunk_count": 0,
+                    }
+                docs[doc_id]["chunk_count"] += 1
+
+        return list(docs.values())
+
+    def get_all_collections(self) -> List[Dict[str, Any]]:
+        """
+        Get all unique collection names with document counts.
+
+        Returns:
+            List of dicts with collection name and document count
+        """
+        all_data = self._collection.get(include=["metadatas"])
+
+        # Group by collection
+        collections = {}
+        for metadata in all_data.get("metadatas", []):
+            collection = metadata.get("collection", "")
+            if collection:
+                doc_id = metadata.get("doc_id", "unknown")
+                if collection not in collections:
+                    collections[collection] = {"name": collection, "doc_ids": set()}
+                collections[collection]["doc_ids"].add(doc_id)
+
+        return [
+            {"name": name, "document_count": len(data["doc_ids"])}
+            for name, data in sorted(collections.items())
+        ]
+
+    def get_all_tags(self) -> List[Dict[str, Any]]:
+        """
+        Get all unique tags with document counts.
+
+        Returns:
+            List of dicts with tag and document count
+        """
+        all_data = self._collection.get(include=["metadatas"])
+
+        # Collect tags with doc_ids
+        tags = {}
+        for metadata in all_data.get("metadatas", []):
+            tags_str = metadata.get("tags", "")
+            doc_id = metadata.get("doc_id", "unknown")
+
+            for tag in tags_str.split(","):
+                tag = tag.strip()
+                if tag:
+                    if tag not in tags:
+                        tags[tag] = {"tag": tag, "doc_ids": set()}
+                    tags[tag]["doc_ids"].add(doc_id)
+
+        return [
+            {"tag": name, "document_count": len(data["doc_ids"])}
+            for name, data in sorted(tags.items())
+        ]
+
     def get_document_summary(self, doc_id: str) -> Optional[Dict[str, Any]]:
         """
         Get the summary chunk for a specific document.
@@ -493,6 +688,8 @@ class DocumentIndexer:
         replace_existing: bool = True,
         generate_summary: Optional[bool] = None,
         generate_suggestions: Optional[bool] = None,
+        collection_name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Index a parsed document into the vector store.
@@ -502,6 +699,8 @@ class DocumentIndexer:
             replace_existing: Delete existing chunks for this doc first
             generate_summary: Generate document summary (None = use default setting)
             generate_suggestions: Generate query suggestions (None = use default setting)
+            collection_name: Optional collection name to assign to the document
+            tags: Optional list of tags to assign to the document
 
         Returns:
             Indexing result with doc_id, chunks_added, summary, suggestions, etc.
@@ -568,8 +767,13 @@ class DocumentIndexer:
         # Generate embeddings
         embeddings = self.embedder.embed_chunks(chunks)
 
-        # Store in vector store
-        added = self.vector_store.add_chunks(chunks, embeddings)
+        # Store in vector store with collection and tags
+        added = self.vector_store.add_chunks(
+            chunks,
+            embeddings,
+            collection_name=collection_name,
+            tags=tags,
+        )
 
         # Index in BM25 for hybrid search
         bm25_indexed = 0
@@ -602,6 +806,8 @@ class DocumentIndexer:
                 [s.to_dict() for s in suggestions_result] if suggestions_result else None
             ),
             "bm25_indexed": bm25_indexed,
+            "collection": collection_name,
+            "tags": tags or [],
         }
 
         return result

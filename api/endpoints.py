@@ -40,6 +40,7 @@ from core.validators import (
     validate_file_path,
     validate_query,
 )
+from storage.collections import CollectionManager
 from storage.history_store import HistoryStore
 from storage.vector_store import DocumentIndexer
 
@@ -49,12 +50,13 @@ logger = logging.getLogger(__name__)
 query_engine: Optional[QueryEngine] = None
 document_indexer: Optional[DocumentIndexer] = None
 history_store: Optional[HistoryStore] = None
+collection_manager: Optional[CollectionManager] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup."""
-    global query_engine, document_indexer, history_store
+    global query_engine, document_indexer, history_store, collection_manager
 
     logger.info("Initializing Workpedia API...")
 
@@ -90,9 +92,11 @@ async def lifespan(app: FastAPI):
 
         logger.info(f"✓ Ollama connection validated: {health['message']}")
 
-        # Step 2: Initialize history store
+        # Step 2: Initialize history store and collection manager
         history_store = HistoryStore()
+        collection_manager = CollectionManager()
         logger.info("✓ History store initialized")
+        logger.info("✓ Collection manager initialized")
 
         # Step 3: Initialize components
         query_engine = QueryEngine(
@@ -374,6 +378,8 @@ class QueryRequest(BaseModel):
     )
     n_results: int = Field(5, ge=1, le=50, description="Number of chunks to retrieve")
     doc_id: Optional[str] = Field(None, description="Filter to specific document")
+    collection_name: Optional[str] = Field(None, description="Filter to specific collection")
+    tags: Optional[List[str]] = Field(None, description="Filter to documents with specific tags")
     temperature: float = Field(0.7, ge=0, le=2.0, description="LLM temperature")
     max_tokens: Optional[int] = Field(None, ge=1, le=4096, description="Maximum response tokens")
 
@@ -601,6 +607,8 @@ async def query_documents(request: QueryRequest):
             question=request.question,
             n_results=request.n_results,
             doc_id=request.doc_id,
+            collection_name=request.collection_name,
+            tags=request.tags,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
         )
@@ -1086,7 +1094,12 @@ async def create_backup(
     Returns path to created backup file.
     """
     try:
-        from config.config import BACKUP_DIR, BACKUP_MAX_BACKUPS, BACKUP_COMPRESS, CHROMA_PERSIST_DIR
+        from config.config import (
+            BACKUP_COMPRESS,
+            BACKUP_DIR,
+            BACKUP_MAX_BACKUPS,
+            CHROMA_PERSIST_DIR,
+        )
         from storage.backup import BackupManager
 
         manager = BackupManager(
@@ -1119,7 +1132,12 @@ async def list_backups():
     Returns list of backups sorted by creation date (newest first).
     """
     try:
-        from config.config import BACKUP_DIR, BACKUP_MAX_BACKUPS, BACKUP_COMPRESS, CHROMA_PERSIST_DIR
+        from config.config import (
+            BACKUP_COMPRESS,
+            BACKUP_DIR,
+            BACKUP_MAX_BACKUPS,
+            CHROMA_PERSIST_DIR,
+        )
         from storage.backup import BackupManager
 
         manager = BackupManager(
@@ -1153,7 +1171,12 @@ async def restore_backup(
     Use force=true to confirm the operation.
     """
     try:
-        from config.config import BACKUP_DIR, BACKUP_MAX_BACKUPS, BACKUP_COMPRESS, CHROMA_PERSIST_DIR
+        from config.config import (
+            BACKUP_COMPRESS,
+            BACKUP_DIR,
+            BACKUP_MAX_BACKUPS,
+            CHROMA_PERSIST_DIR,
+        )
         from storage.backup import BackupManager
 
         manager = BackupManager(
@@ -1196,7 +1219,12 @@ async def delete_backup(backup_name: str):
     This action cannot be undone.
     """
     try:
-        from config.config import BACKUP_DIR, BACKUP_MAX_BACKUPS, BACKUP_COMPRESS, CHROMA_PERSIST_DIR
+        from config.config import (
+            BACKUP_COMPRESS,
+            BACKUP_DIR,
+            BACKUP_MAX_BACKUPS,
+            CHROMA_PERSIST_DIR,
+        )
         from storage.backup import BackupManager
 
         manager = BackupManager(
@@ -1236,7 +1264,12 @@ async def get_backup_stats():
     Returns information about total backups, size, and retention settings.
     """
     try:
-        from config.config import BACKUP_DIR, BACKUP_MAX_BACKUPS, BACKUP_COMPRESS, CHROMA_PERSIST_DIR
+        from config.config import (
+            BACKUP_COMPRESS,
+            BACKUP_DIR,
+            BACKUP_MAX_BACKUPS,
+            CHROMA_PERSIST_DIR,
+        )
         from storage.backup import BackupManager
 
         manager = BackupManager(
@@ -1596,6 +1629,319 @@ async def export_bookmarks_json(
 
 
 # =============================================================================
+# Collection Endpoints
+# =============================================================================
+
+
+class CollectionCreate(BaseModel):
+    """Request to create a collection."""
+    name: str = Field(..., min_length=1, max_length=100, description="Collection name")
+    description: str = Field("", max_length=500, description="Collection description")
+
+
+class CollectionUpdate(BaseModel):
+    """Request to update a collection."""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+
+
+class CollectionResponse(BaseModel):
+    """Collection response."""
+    collection_id: str
+    name: str
+    description: str
+    created_at: float
+    updated_at: float
+    document_count: int
+
+
+class DocumentTagsRequest(BaseModel):
+    """Request to update document tags."""
+    tags: List[str] = Field(..., description="List of tags")
+
+
+class DocumentCollectionRequest(BaseModel):
+    """Request to set document collection."""
+    collection_id: Optional[str] = Field(None, description="Collection ID (None to remove)")
+
+
+@app.get("/collections", response_model=List[CollectionResponse], tags=["Collections"])
+async def list_collections():
+    """List all document collections."""
+    if not collection_manager:
+        raise HTTPException(status_code=503, detail="Collection manager not initialized")
+
+    try:
+        collections = collection_manager.list_collections()
+        return [c.to_dict() for c in collections]
+    except Exception as e:
+        logger.error(f"Failed to list collections: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/collections", response_model=CollectionResponse, tags=["Collections"])
+async def create_collection(request: CollectionCreate):
+    """Create a new document collection."""
+    if not collection_manager:
+        raise HTTPException(status_code=503, detail="Collection manager not initialized")
+
+    try:
+        collection_id = collection_manager.create_collection(
+            name=request.name,
+            description=request.description,
+        )
+        collection = collection_manager.get_collection(collection_id)
+        return collection.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to create collection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/collections/{collection_id}", response_model=CollectionResponse, tags=["Collections"])
+async def get_collection(collection_id: str):
+    """Get a specific collection."""
+    if not collection_manager:
+        raise HTTPException(status_code=503, detail="Collection manager not initialized")
+
+    collection = collection_manager.get_collection(collection_id)
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    return collection.to_dict()
+
+
+@app.put("/collections/{collection_id}", response_model=CollectionResponse, tags=["Collections"])
+async def update_collection(collection_id: str, request: CollectionUpdate):
+    """Update a collection."""
+    if not collection_manager:
+        raise HTTPException(status_code=503, detail="Collection manager not initialized")
+
+    try:
+        updated = collection_manager.update_collection(
+            collection_id=collection_id,
+            name=request.name,
+            description=request.description,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Collection not found")
+
+        collection = collection_manager.get_collection(collection_id)
+        return collection.to_dict()
+    except Exception as e:
+        logger.error(f"Failed to update collection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/collections/{collection_id}", tags=["Collections"])
+async def delete_collection(collection_id: str):
+    """Delete a collection."""
+    if not collection_manager:
+        raise HTTPException(status_code=503, detail="Collection manager not initialized")
+
+    deleted = collection_manager.delete_collection(collection_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    return {"status": "deleted", "collection_id": collection_id}
+
+
+@app.get("/collections/{collection_id}/documents", tags=["Collections"])
+async def list_collection_documents(collection_id: str):
+    """List all documents in a collection."""
+    if not collection_manager or not query_engine:
+        raise HTTPException(status_code=503, detail="Services not initialized")
+
+    # Verify collection exists
+    collection = collection_manager.get_collection(collection_id)
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    # Get documents from vector store by collection name
+    docs = query_engine.vector_store.list_documents_by_collection(collection.name)
+    return {
+        "collection_id": collection_id,
+        "collection_name": collection.name,
+        "documents": docs,
+    }
+
+
+@app.post("/documents/{doc_id}/collection", tags=["Collections"])
+async def set_document_collection(doc_id: str, request: DocumentCollectionRequest):
+    """Set or remove document from a collection."""
+    if not collection_manager or not query_engine:
+        raise HTTPException(status_code=503, detail="Services not initialized")
+
+    try:
+        doc_id = validate_document_id(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Get collection name if ID provided
+    collection_name = None
+    if request.collection_id:
+        collection = collection_manager.get_collection(request.collection_id)
+        if not collection:
+            raise HTTPException(status_code=404, detail="Collection not found")
+        collection_name = collection.name
+
+    # Update in vector store
+    updated = query_engine.vector_store.update_document_collection(doc_id, collection_name)
+    if updated == 0:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Update in collection manager
+    collection_manager.set_document_collection(doc_id, request.collection_id)
+
+    return {
+        "doc_id": doc_id,
+        "collection_id": request.collection_id,
+        "collection_name": collection_name,
+        "chunks_updated": updated,
+    }
+
+
+# =============================================================================
+# Tag Endpoints
+# =============================================================================
+
+
+@app.get("/tags", tags=["Tags"])
+async def list_all_tags():
+    """List all unique tags with document counts."""
+    if not query_engine:
+        raise HTTPException(status_code=503, detail="Query engine not initialized")
+
+    try:
+        tags = query_engine.vector_store.get_all_tags()
+        return {"tags": tags}
+    except Exception as e:
+        logger.error(f"Failed to list tags: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/documents/{doc_id}/tags", tags=["Tags"])
+async def get_document_tags(doc_id: str):
+    """Get tags for a specific document."""
+    if not collection_manager:
+        raise HTTPException(status_code=503, detail="Collection manager not initialized")
+
+    try:
+        doc_id = validate_document_id(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    tags = collection_manager.get_document_tags(doc_id)
+    return {"doc_id": doc_id, "tags": tags}
+
+
+@app.post("/documents/{doc_id}/tags", tags=["Tags"])
+async def add_document_tags(doc_id: str, request: DocumentTagsRequest):
+    """Add tags to a document."""
+    if not collection_manager or not query_engine:
+        raise HTTPException(status_code=503, detail="Services not initialized")
+
+    try:
+        doc_id = validate_document_id(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Add tags in collection manager
+    added = collection_manager.add_tags(doc_id, request.tags)
+
+    # Update in vector store - get all tags and update
+    all_tags = collection_manager.get_document_tags(doc_id)
+    query_engine.vector_store.update_document_tags(doc_id, all_tags)
+
+    return {
+        "doc_id": doc_id,
+        "tags_added": added,
+        "all_tags": all_tags,
+    }
+
+
+@app.put("/documents/{doc_id}/tags", tags=["Tags"])
+async def set_document_tags(doc_id: str, request: DocumentTagsRequest):
+    """Set (replace all) tags for a document."""
+    if not collection_manager or not query_engine:
+        raise HTTPException(status_code=503, detail="Services not initialized")
+
+    try:
+        doc_id = validate_document_id(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Set tags in collection manager
+    collection_manager.set_document_tags(doc_id, request.tags)
+
+    # Update in vector store
+    updated = query_engine.vector_store.update_document_tags(doc_id, request.tags)
+
+    return {
+        "doc_id": doc_id,
+        "tags": request.tags,
+        "chunks_updated": updated,
+    }
+
+
+@app.delete("/documents/{doc_id}/tags", tags=["Tags"])
+async def remove_document_tags(doc_id: str, request: DocumentTagsRequest):
+    """Remove specific tags from a document."""
+    if not collection_manager or not query_engine:
+        raise HTTPException(status_code=503, detail="Services not initialized")
+
+    try:
+        doc_id = validate_document_id(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Remove tags in collection manager
+    removed = collection_manager.remove_tags(doc_id, request.tags)
+
+    # Update in vector store
+    all_tags = collection_manager.get_document_tags(doc_id)
+    query_engine.vector_store.update_document_tags(doc_id, all_tags)
+
+    return {
+        "doc_id": doc_id,
+        "tags_removed": removed,
+        "remaining_tags": all_tags,
+    }
+
+
+@app.get("/tags/{tag}/documents", tags=["Tags"])
+async def list_documents_by_tag(tag: str):
+    """List all documents with a specific tag."""
+    if not query_engine:
+        raise HTTPException(status_code=503, detail="Query engine not initialized")
+
+    try:
+        docs = query_engine.vector_store.list_documents_by_tag(tag)
+        return {
+            "tag": tag,
+            "documents": docs,
+        }
+    except Exception as e:
+        logger.error(f"Failed to list documents by tag: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/collections/stats", tags=["Collections"])
+async def get_collection_stats():
+    """Get collection and tag statistics."""
+    if not collection_manager:
+        raise HTTPException(status_code=503, detail="Collection manager not initialized")
+
+    try:
+        stats = collection_manager.get_stats()
+        return stats
+    except Exception as e:
+        logger.error(f"Failed to get collection stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
 # System Endpoints
 # =============================================================================
 
@@ -1611,6 +1957,8 @@ async def root():
         "resilience": "/resilience",
         "history": "/history",
         "bookmarks": "/bookmarks",
+        "collections": "/collections",
+        "tags": "/tags",
     }
 
 

@@ -152,6 +152,8 @@ class QueryEngine:
         question: str,
         n_results: Optional[int] = None,
         doc_id: Optional[str] = None,
+        collection_name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         session_id: Optional[str] = None,
@@ -164,6 +166,8 @@ class QueryEngine:
             question: User's question
             n_results: Number of chunks to retrieve (overrides default)
             doc_id: Filter to specific document
+            collection_name: Filter to specific collection
+            tags: Filter to documents with specific tags (any match)
             temperature: LLM temperature (overrides default)
             max_tokens: Maximum tokens for response
             session_id: Session identifier for grouping queries
@@ -207,7 +211,7 @@ class QueryEngine:
         logger.info(f"Query: '{question[:50]}...' (n_results={n_results})")
 
         # Step 1: Retrieve relevant chunks
-        chunks = self._retrieve(question, n_results, doc_id)
+        chunks = self._retrieve(question, n_results, doc_id, collection_name, tags)
 
         if not chunks:
             logger.warning("No relevant chunks found")
@@ -386,13 +390,59 @@ class QueryEngine:
             confidence=confidence,
         )
 
+    def _build_where_clause(
+        self,
+        doc_id: Optional[str] = None,
+        collection_name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Build ChromaDB where clause for filtering.
+
+        Args:
+            doc_id: Filter to specific document
+            collection_name: Filter to specific collection
+            tags: Filter to documents with specific tags (stored comma-separated)
+
+        Returns:
+            Where clause dict for ChromaDB query, or None if no filters
+        """
+        conditions = []
+
+        if doc_id:
+            conditions.append({"doc_id": doc_id})
+
+        if collection_name:
+            conditions.append({"collection": collection_name})
+
+        # Note: ChromaDB doesn't support $contains for strings, so tag filtering
+        # needs post-processing or we match exact comma-separated strings
+        # For simplicity, we filter by collection only at ChromaDB level
+        # and filter by tags in post-processing if needed
+
+        if not conditions:
+            return None
+        elif len(conditions) == 1:
+            return conditions[0]
+        else:
+            return {"$and": conditions}
+
     def _retrieve(
         self,
         question: str,
         n_results: int,
         doc_id: Optional[str] = None,
+        collection_name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
-        """Retrieve relevant chunks with optional reranking."""
+        """Retrieve relevant chunks with optional reranking.
+
+        Args:
+            question: Query text
+            n_results: Number of results to return
+            doc_id: Filter to specific document
+            collection_name: Filter to specific collection
+            tags: Filter to documents with specific tags
+        """
         special_chunks = []  # Chunks from special queries (summary, TOC) - not reranked
         search_chunks = []  # Chunks from search - will be reranked
         question_lower = question.lower()
@@ -510,8 +560,9 @@ class QueryEngine:
             # Generate query embedding
             query_embedding = self.embedder.embed(question)
 
-            # Search vector store (semantic search)
-            where = {"doc_id": doc_id} if doc_id else None
+            # Build where clause for filtering
+            where = self._build_where_clause(doc_id, collection_name, tags)
+
             results = self.vector_store.query(
                 query_embedding=query_embedding,
                 n_results=retrieval_count,

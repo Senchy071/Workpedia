@@ -14,11 +14,12 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 | 4 | Export Functionality      | ✅ Complete  | `storage/history_store.py`, `api/endpoints.py`  |
 | 5 | Query Suggestions         | ✅ Complete  | `core/suggestions.py`                           |
 | 6 | Hybrid Search             | ✅ Complete  | `core/hybrid_search.py`                         |
+| 7 | Document Collections/Tags | ✅ Complete  | `storage/collections.py`                        |
 | 8 | Cross-Encoder Reranking   | ✅ Complete  | `core/reranker.py`                              |
 | 16| Vector Store Backup       | ✅ Complete  | `storage/backup.py`                             |
 | 18| Performance Caching       | ✅ Complete  | `core/caching.py`                               |
 
-**Progress**: 6/6 HIGH PRIORITY + Reranking + Backup + Caching implemented
+**Progress**: 6/6 HIGH PRIORITY + Collections + Reranking + Backup + Caching implemented
 
 ---
 
@@ -160,14 +161,38 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 
 ---
 
-### 7. Document Collections & Tags
+### 7. Document Collections & Tags ✅ IMPLEMENTED
 **Why**: Organize documents by project, topic, category
 
 **Features:**
 - User-defined tags: `project:alpha`, `type:contract`, `year:2024`
 - Collections: Group related documents
 - Filter queries by collection: "Search only in legal docs"
-- UI: Tag selector in sidebar
+- Assign collection and tags during document indexing
+- Update collection and tags for existing documents
+- Query filtering by collection name or tags
+
+**Implementation:**
+- `storage/collections.py`: CollectionManager with SQLite persistence
+- `storage/vector_store.py`: Collection/tag metadata in chunks
+- `core/query_engine.py`: Filtering by collection in queries
+- API endpoints: `/collections/*` and `/tags/*`
+- 36 comprehensive tests (all passing)
+
+**API Endpoints:**
+- `GET /collections` - List all collections
+- `POST /collections` - Create a collection
+- `GET /collections/{id}` - Get collection details
+- `PUT /collections/{id}` - Update collection
+- `DELETE /collections/{id}` - Delete collection
+- `GET /collections/{id}/documents` - List documents in collection
+- `POST /documents/{doc_id}/collection` - Set document collection
+- `GET /tags` - List all tags
+- `GET /documents/{doc_id}/tags` - Get document tags
+- `POST /documents/{doc_id}/tags` - Add tags
+- `PUT /documents/{doc_id}/tags` - Set (replace) tags
+- `DELETE /documents/{doc_id}/tags` - Remove tags
+- `GET /tags/{tag}/documents` - List documents by tag
 
 **Effort**: Medium | **Impact**: Medium
 
