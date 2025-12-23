@@ -66,7 +66,7 @@ workpedia/
 ├── api/                 # API endpoints and query interface
 │   └── endpoints.py     # FastAPI REST API
 ├── app.py               # Streamlit web UI
-├── tests/               # Test files (380+ tests)
+├── tests/               # Test files (400+ tests)
 ├── data/                # Sample data and test documents
 │   ├── input/           # Input documents for testing
 │   └── output/          # Processed output
@@ -116,7 +116,7 @@ ollama pull mistral
 pytest tests/ -v
 ```
 
-All 150+ tests should pass.
+All 400+ tests should pass.
 
 ## Usage
 
@@ -134,7 +134,7 @@ streamlit run app.py
 ```
 
 The UI will open at `http://localhost:8501` with features:
-- 📤 **Upload Documents**: Drag & drop PDF, DOCX, or HTML files
+- 📤 **Upload Documents**: Drag & drop PDF, DOCX, XLSX, CSV, or HTML files
 - 💬 **Chat Interface**: Ask questions about your documents
 - 📊 **Statistics**: View indexed documents and system stats
 - ⚙️ **Settings**: Adjust context chunks and temperature
@@ -389,7 +389,7 @@ Edit `config/config.py` to customize:
 - [x] Document upload and indexing API
 - [x] Health checks and system statistics
 - [x] Streamlit web UI for user-friendly document upload and Q&A
-- [x] 150+ tests passing
+- [x] 400+ tests passing
 
 ### Additional Features - Complete ✓
 

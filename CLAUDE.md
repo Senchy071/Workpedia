@@ -307,7 +307,7 @@ timeout 30 ollama run mistral "test prompt"
 **Testing**:
 
 ```bash
-# Run all tests (150+ tests)
+# Run all tests (400+ tests)
 pytest tests/
 
 # Run parser-specific tests

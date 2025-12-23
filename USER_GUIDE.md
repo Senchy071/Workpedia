@@ -107,6 +107,8 @@ python3 demo_parser.py
 
 - PDF (`.pdf`)
 - Word Documents (`.docx`)
+- Excel Spreadsheets (`.xlsx`, `.xls`)
+- CSV/TSV (`.csv`, `.tsv`)
 - HTML (`.html`, `.htm`)
 
 **How to Upload:**
@@ -1057,7 +1059,7 @@ ollama pull your-model-name
 **Solutions:**
 
 1. **Check file format:**
-   - Only PDF, DOCX, HTML supported
+   - Supported: PDF, DOCX, XLSX, XLS, CSV, TSV, HTML
    - File must not be corrupted
 
 2. **Check file size:**
@@ -1356,7 +1358,7 @@ Now that you're familiar with Workpedia:
 4. ✅ Explore the API (if needed)
 5. ✅ Customize configuration for your use case
 
-**Happy querying! 📚🤖**
+**Happy querying!**
 
 ---
 

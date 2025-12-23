@@ -491,5 +491,5 @@ No critical TODOs or incomplete core features were found. All proposed features 
 
 ---
 
-*Document updated: 2025-12-18*
-*Workpedia Version: 1.1 (Core + Additional Features)*
+*Document updated: 2025-12-22*
+*Workpedia Version: 1.2 (Core + Additional Features + XLSX/CSV Support)*
