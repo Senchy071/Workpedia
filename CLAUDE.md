@@ -56,7 +56,7 @@ Core Settings:
 - Ollama: http://localhost:11434 using "mistral" model
 - ChromaDB: Persisted to `chroma_db/` in project root, collection "workpedia_docs"
 - Chunking: 512 tokens with 15% overlap
-- Embedding: sentence-transformers/all-mpnet-base-v2 (768 dimensions)
+- Embedding: Swappable models via EMBEDDING_MODELS registry (default: all-mpnet-base-v2, 768 dim)
 
 Document Processing:
 - Large documents: >100 pages or >50MB processed in 75-page chunks
@@ -307,7 +307,7 @@ timeout 30 ollama run mistral "test prompt"
 **Testing**:
 
 ```bash
-# Run all tests (400+ tests)
+# Run all tests (430+ tests)
 pytest tests/
 
 # Run parser-specific tests

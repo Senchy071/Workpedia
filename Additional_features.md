@@ -18,8 +18,9 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 | 8 | Cross-Encoder Reranking   | ✅ Complete  | `core/reranker.py`                              |
 | 16| Vector Store Backup       | ✅ Complete  | `storage/backup.py`                             |
 | 18| Performance Caching       | ✅ Complete  | `core/caching.py`                               |
+| 14| Custom Embedding Models   | ✅ Complete  | `config/config.py`, `core/embedder.py`          |
 
-**Progress**: 6/6 HIGH PRIORITY + Collections + Reranking + Backup + Caching implemented
+**Progress**: 6/6 HIGH PRIORITY + Collections + Reranking + Backup + Caching + Custom Embeddings implemented
 
 ---
 
@@ -298,17 +299,33 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 
 ---
 
-### 14. Custom Embedding Models
+### 14. Custom Embedding Models ✅ IMPLEMENTED
 **Why**: Domain-specific models may work better
 
 **Features:**
-- Support swappable embedding models:
-  - `all-mpnet-base-v2` (current, general)
-  - `sentence-transformers/all-MiniLM-L6-v2` (faster, smaller)
-  - `BAAI/bge-large-en` (better quality)
-  - Custom fine-tuned models
-- Config option to switch models
-- Re-index existing documents with new embeddings
+- Support swappable embedding models via EMBEDDING_MODELS registry
+- Pre-configured models with automatic dimension detection:
+  - `sentence-transformers/all-mpnet-base-v2` (768-dim, default)
+  - `sentence-transformers/all-MiniLM-L6-v2` (384-dim, fast)
+  - `sentence-transformers/all-MiniLM-L12-v2` (384-dim)
+  - `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` (768-dim, multilingual)
+  - `BAAI/bge-small-en-v1.5` (384-dim)
+  - `BAAI/bge-base-en-v1.5` (768-dim)
+  - `BAAI/bge-large-en-v1.5` (1024-dim)
+- Unknown models supported with runtime dimension detection
+- Helper functions: `list_available_models()`, `get_model_info()`
+
+**Implementation:**
+- `config/config.py`: EMBEDDING_MODELS registry with dimensions
+- `core/embedder.py`: Updated for swappable models
+- `tests/test_embedding_models.py`: 27 comprehensive tests
+
+**Configuration:**
+```python
+# Change in config/config.py to switch models
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # Faster, 384-dim
+# WARNING: Changing models requires re-indexing all documents!
+```
 
 **Effort**: Low | **Impact**: Medium
 
@@ -491,5 +508,5 @@ No critical TODOs or incomplete core features were found. All proposed features 
 
 ---
 
-*Document updated: 2025-12-22*
-*Workpedia Version: 1.2 (Core + Additional Features + XLSX/CSV Support)*
+*Document updated: 2025-12-27*
+*Workpedia Version: 1.3 (Core + Additional Features + XLSX/CSV + Custom Embeddings)*

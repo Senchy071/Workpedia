@@ -66,7 +66,7 @@ workpedia/
 ├── api/                 # API endpoints and query interface
 │   └── endpoints.py     # FastAPI REST API
 ├── app.py               # Streamlit web UI
-├── tests/               # Test files (400+ tests)
+├── tests/               # Test files (430+ tests)
 ├── data/                # Sample data and test documents
 │   ├── input/           # Input documents for testing
 │   └── output/          # Processed output
@@ -116,7 +116,7 @@ ollama pull mistral
 pytest tests/ -v
 ```
 
-All 400+ tests should pass.
+All 430+ tests should pass.
 
 ## Usage
 
@@ -389,7 +389,7 @@ Edit `config/config.py` to customize:
 - [x] Document upload and indexing API
 - [x] Health checks and system statistics
 - [x] Streamlit web UI for user-friendly document upload and Q&A
-- [x] 400+ tests passing
+- [x] 430+ tests passing
 
 ### Additional Features - Complete ✓
 

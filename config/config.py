@@ -11,8 +11,55 @@ OLLAMA_MODEL = "mistral"
 OLLAMA_BASE_URL = "http://localhost:11434"
 
 # Embedding settings
+# Supported embedding models with their dimensions
+# Add new models here with their output dimensions
+EMBEDDING_MODELS = {
+    # High quality, balanced (recommended default)
+    "sentence-transformers/all-mpnet-base-v2": 768,
+    "all-mpnet-base-v2": 768,  # Short alias
+    # Faster, smaller, good for resource-constrained environments
+    "sentence-transformers/all-MiniLM-L6-v2": 384,
+    "all-MiniLM-L6-v2": 384,  # Short alias
+    # Higher quality, slower
+    "sentence-transformers/all-MiniLM-L12-v2": 384,
+    "all-MiniLM-L12-v2": 384,  # Short alias
+    # Multilingual support
+    "sentence-transformers/paraphrase-multilingual-mpnet-base-v2": 768,
+    "paraphrase-multilingual-mpnet-base-v2": 768,  # Short alias
+    # BGE models (high quality)
+    "BAAI/bge-small-en-v1.5": 384,
+    "BAAI/bge-base-en-v1.5": 768,
+    "BAAI/bge-large-en-v1.5": 1024,
+}
+
+# Active embedding model (change this to switch models)
+# WARNING: Changing models requires re-indexing all documents!
 EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
-EMBEDDING_DIM = 768
+
+
+def get_embedding_dimension(model_name: str = EMBEDDING_MODEL) -> int:
+    """
+    Get the embedding dimension for a model.
+
+    Args:
+        model_name: Name of the embedding model
+
+    Returns:
+        Embedding dimension
+
+    Raises:
+        ValueError: If model is not in EMBEDDING_MODELS registry
+    """
+    if model_name in EMBEDDING_MODELS:
+        return EMBEDDING_MODELS[model_name]
+
+    # For unknown models, we can't know the dimension ahead of time
+    # The Embedder will detect it at runtime
+    return None
+
+
+# Default dimension for the active model
+EMBEDDING_DIM = get_embedding_dimension(EMBEDDING_MODEL) or 768
 
 # ChromaDB settings
 CHROMA_PERSIST_DIR = str(PROJECT_ROOT / "chroma_db")

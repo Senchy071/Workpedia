@@ -9,8 +9,9 @@ from config.config import (
     CACHE_DIR,
     CACHE_EMBEDDING_TTL,
     CACHE_ENABLED,
-    EMBEDDING_DIM,
     EMBEDDING_MODEL,
+    EMBEDDING_MODELS,
+    get_embedding_dimension,
 )
 
 if TYPE_CHECKING:
@@ -24,10 +25,20 @@ class Embedder:
     Embedder using sentence-transformers for semantic representations.
 
     Features:
-    - High-quality 768-dimensional embeddings
+    - Swappable embedding models (see config.EMBEDDING_MODELS)
+    - Automatic dimension detection for known models
     - Batch processing for efficiency
     - GPU acceleration when available
     - Normalized vectors for cosine similarity
+
+    Supported models (configure in config/config.py):
+    - sentence-transformers/all-mpnet-base-v2 (768-dim, balanced, default)
+    - sentence-transformers/all-MiniLM-L6-v2 (384-dim, fast)
+    - sentence-transformers/all-MiniLM-L12-v2 (384-dim, quality)
+    - sentence-transformers/paraphrase-multilingual-mpnet-base-v2 (768-dim, multilingual)
+    - BAAI/bge-small-en-v1.5 (384-dim)
+    - BAAI/bge-base-en-v1.5 (768-dim)
+    - BAAI/bge-large-en-v1.5 (1024-dim)
     """
 
     def __init__(
@@ -42,16 +53,32 @@ class Embedder:
         Initialize embedder with sentence-transformers model.
 
         Args:
-            model_name: HuggingFace model name (default: all-mpnet-base-v2)
+            model_name: HuggingFace model name (default from config.EMBEDDING_MODEL)
             device: Device to use ('cuda', 'cpu', or None for auto)
             normalize: Whether to normalize embeddings (recommended for cosine similarity)
             enable_cache: Whether to enable caching for query embeddings
             cache_ttl: Cache TTL in seconds (default: 1 hour)
+
+        Note:
+            Changing embedding models requires re-indexing all documents!
+            Different models have different dimensions.
         """
         self.model_name = model_name
         self.normalize = normalize
         self._model = None
         self._device = device
+        self._dimension = None  # Will be set on first model load or from registry
+
+        # Get dimension from registry if available
+        known_dim = get_embedding_dimension(model_name)
+        if known_dim:
+            self._dimension = known_dim
+            logger.debug(f"Model {model_name} dimension from registry: {known_dim}")
+        else:
+            logger.warning(
+                f"Model '{model_name}' not in EMBEDDING_MODELS registry. "
+                f"Dimension will be detected at runtime."
+            )
 
         # Initialize cache
         self._cache = None
@@ -67,7 +94,7 @@ class Embedder:
 
         logger.info(
             f"Embedder initialized: model={model_name}, "
-            f"normalize={normalize}, cache={enable_cache}"
+            f"dim={self._dimension or 'auto'}, normalize={normalize}, cache={enable_cache}"
         )
 
     @property
@@ -78,15 +105,33 @@ class Embedder:
             from sentence_transformers import SentenceTransformer
 
             self._model = SentenceTransformer(self.model_name, device=self._device)
+
+            # Detect dimension from loaded model if not known
+            if self._dimension is None:
+                self._dimension = self._model.get_sentence_embedding_dimension()
+                logger.info(
+                    f"Detected dimension {self._dimension} for model {self.model_name}"
+                )
+
             logger.info(
-                f"Model loaded: {self.model_name} on {self._model.device}"
+                f"Model loaded: {self.model_name} on {self._model.device}, "
+                f"dimension={self._dimension}"
             )
         return self._model
 
     @property
     def dimension(self) -> int:
-        """Get embedding dimension."""
-        return EMBEDDING_DIM
+        """
+        Get embedding dimension.
+
+        Returns dimension from registry if known, otherwise loads model to detect.
+        """
+        if self._dimension is not None:
+            return self._dimension
+
+        # Force model load to detect dimension
+        _ = self.model
+        return self._dimension
 
     def embed(
         self,
@@ -225,7 +270,7 @@ class Embedder:
             self._model = None
 
 
-# Convenience function
+# Convenience functions
 def embed_text(
     text: Union[str, List[str]],
     model_name: str = EMBEDDING_MODEL,
@@ -242,3 +287,32 @@ def embed_text(
     """
     embedder = Embedder(model_name=model_name)
     return embedder.embed(text)
+
+
+def list_available_models() -> dict:
+    """
+    List all available embedding models with their dimensions.
+
+    Returns:
+        Dictionary mapping model name to dimension
+    """
+    return EMBEDDING_MODELS.copy()
+
+
+def get_model_info(model_name: str) -> dict:
+    """
+    Get information about a specific embedding model.
+
+    Args:
+        model_name: Name of the model
+
+    Returns:
+        Dictionary with model info (name, dimension, known)
+    """
+    dim = get_embedding_dimension(model_name)
+    return {
+        "name": model_name,
+        "dimension": dim,
+        "known": dim is not None,
+        "is_default": model_name == EMBEDDING_MODEL,
+    }
