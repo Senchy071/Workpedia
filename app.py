@@ -200,11 +200,11 @@ with st.sidebar:
     # Query Settings
     st.subheader("Query Settings")
 
-    # Agent Mode Toggle
+    # Agent Mode Toggle - store in session state for access outside sidebar
     agent_available = st.session_state.get("agent") is not None
-    use_agent = st.toggle(
+    st.session_state.use_agent = st.toggle(
         "🤖 Agent Mode",
-        value=False,
+        value=st.session_state.get("use_agent", False),
         disabled=not agent_available,
         help=(
             "Agent mode allows iterative search and reasoning. "
@@ -214,17 +214,17 @@ with st.sidebar:
         ),
     )
 
-    if use_agent:
+    if st.session_state.use_agent:
         st.caption(f"Using: {AGENT_MODEL}")
-        max_iterations = st.slider(
+        st.session_state.max_iterations = st.slider(
             "Max iterations",
             min_value=1,
             max_value=15,
-            value=10,
+            value=st.session_state.get("max_iterations", 10),
             help="Maximum tool call iterations for agent",
         )
     else:
-        max_iterations = 10  # Default, not used in non-agent mode
+        st.session_state.max_iterations = 10
 
     n_results = st.slider(
         "Context chunks",
@@ -232,7 +232,7 @@ with st.sidebar:
         max_value=10,
         value=5,
         help="Number of document chunks to retrieve for context",
-        disabled=use_agent,  # Agent manages its own retrieval
+        disabled=st.session_state.use_agent,
     )
 
     temperature = st.slider(
@@ -242,7 +242,7 @@ with st.sidebar:
         value=0.7,
         step=0.1,
         help="LLM creativity (0=focused, 1=creative)",
-        disabled=use_agent,  # Agent uses fixed low temperature
+        disabled=st.session_state.use_agent,
     )
 
     st.divider()
@@ -358,110 +358,70 @@ with tab1:
                 st.write(question)
 
             with st.chat_message("assistant"):
-                if use_agent and st.session_state.agent:
-                    # Agent Mode
-                    with st.status("🤖 Agent working...", expanded=True) as status:
+                if st.session_state.get("use_agent") and st.session_state.get("agent"):
+                    # Agent Mode - use synchronous run for reliability
+                    with st.spinner("🤖 Agent working..."):
                         try:
-                            # Create agent with custom max_iterations if needed
                             from core.agent import WorkpediaAgent
 
                             agent = st.session_state.agent
-                            if max_iterations != 10:  # Default
+                            max_iter = st.session_state.get("max_iterations", 10)
+
+                            # Create agent with custom max_iterations if needed
+                            if max_iter != 10:
                                 agent = WorkpediaAgent(
                                     llm_client=agent.llm,
                                     vector_store=agent.tools.vector_store,
                                     embedder=agent.tools.embedder,
-                                    max_iterations=max_iterations,
+                                    max_iterations=max_iter,
                                 )
 
-                            # Stream agent events
-                            tool_calls_display = []
-                            final_result = None
+                            # Run agent (synchronous for reliability)
+                            result = agent.run(question)
 
-                            for event in agent.run_stream(question):
-                                event_type = event.get("type")
+                            # Display result
+                            if result.answer:
+                                st.markdown(result.answer)
+                            else:
+                                st.warning("No answer generated")
 
-                                if event_type == "iteration_start":
-                                    st.write(f"🔄 Iteration {event['iteration']}/{event['max_iterations']}")
+                            # Confidence badge
+                            confidence = result.confidence or "unknown"
+                            if confidence == "high":
+                                st.success(f"🟢 High Confidence | {result.iterations} iterations")
+                            elif confidence == "medium":
+                                st.warning(f"🟡 Medium Confidence | {result.iterations} iterations")
+                            else:
+                                st.error(f"🔴 Low Confidence | {result.iterations} iterations")
 
-                                elif event_type == "thinking":
-                                    if event.get("content"):
-                                        st.caption(f"💭 {event['content'][:100]}...")
-
-                                elif event_type == "tool_call":
-                                    tool_name = event["tool"]
-                                    tool_args = event.get("arguments", {})
-                                    st.write(f"🔧 Using tool: **{tool_name}**")
-                                    if tool_name == "search_documents":
-                                        st.caption(f"Query: {tool_args.get('query', '')}")
-                                    tool_calls_display.append({
-                                        "tool": tool_name,
-                                        "arguments": tool_args,
-                                    })
-
-                                elif event_type == "tool_result":
-                                    tool_name = event["tool"]
-                                    result_data = event.get("result", {})
-                                    if tool_name == "search_documents":
-                                        count = result_data.get("total_found", 0)
-                                        st.caption(f"Found {count} results")
-                                    elif tool_name == "list_documents":
-                                        count = result_data.get("total", 0)
-                                        st.caption(f"Found {count} documents")
-
-                                elif event_type == "complete":
-                                    final_result = event.get("result", {})
-                                    status.update(
-                                        label=f"✅ Complete ({final_result.get('confidence', 'unknown')} confidence)",
-                                        state="complete"
-                                    )
-
-                                elif event_type == "max_iterations":
-                                    final_result = event.get("result", {})
-                                    status.update(label="⚠️ Max iterations reached", state="error")
-
-                                elif event_type == "error":
-                                    st.error(f"Agent error: {event.get('error')}")
-                                    status.update(label="❌ Failed", state="error")
-
-                            # Display final answer
-                            if final_result:
-                                st.markdown("---")
-                                st.markdown(f"**Answer:**\n\n{final_result.get('answer', 'No answer generated')}")
-
-                                # Confidence badge
-                                confidence = final_result.get("confidence", "unknown")
-                                if confidence == "high":
-                                    st.success(f"🟢 High Confidence")
-                                elif confidence == "medium":
-                                    st.warning(f"🟡 Medium Confidence")
-                                else:
-                                    st.error(f"🔴 Low Confidence")
-
-                                # Show tool calls summary
-                                if tool_calls_display:
-                                    with st.expander(f"🔧 Tool Calls ({len(tool_calls_display)})"):
-                                        for i, tc in enumerate(tool_calls_display, 1):
-                                            st.markdown(f"**{i}. {tc['tool']}**")
+                            # Show tool calls
+                            if result.tool_calls:
+                                with st.expander(f"🔧 Tool Calls ({len(result.tool_calls)})"):
+                                    for i, tc in enumerate(result.tool_calls, 1):
+                                        st.markdown(f"**{i}. {tc['tool']}**")
+                                        if tc.get("arguments"):
                                             st.json(tc["arguments"])
 
-                                # Show sources if available
-                                sources = final_result.get("sources", [])
-                                if sources:
-                                    with st.expander(f"📑 Sources ({len(sources)} chunks)"):
-                                        for src_id in sources:
-                                            st.caption(f"Chunk: {src_id}")
+                            # Show sources if available
+                            if result.sources:
+                                with st.expander(f"📑 Sources ({len(result.sources)} chunks)"):
+                                    for src_id in result.sources:
+                                        st.caption(f"Chunk: {src_id}")
 
-                                # Save to chat history
-                                st.session_state.chat_history.append({
-                                    "question": question,
-                                    "answer": final_result.get("answer", ""),
-                                    "sources": [],  # Agent doesn't return full sources
-                                    "query_id": None,
-                                    "agent_mode": True,
-                                    "confidence": confidence,
-                                    "iterations": final_result.get("iterations", 0),
-                                })
+                            # Show error if any
+                            if result.error:
+                                st.error(f"Error: {result.error}")
+
+                            # Save to chat history
+                            st.session_state.chat_history.append({
+                                "question": question,
+                                "answer": result.answer or "",
+                                "sources": [],
+                                "query_id": None,
+                                "agent_mode": True,
+                                "confidence": confidence,
+                                "iterations": result.iterations,
+                            })
 
                         except Exception as e:
                             st.error(f"Agent query failed: {e}")
