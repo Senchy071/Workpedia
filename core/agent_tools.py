@@ -382,6 +382,7 @@ class WorkpediaTools:
                     "confidence": {
                         "type": "string",
                         "enum": ["high", "medium", "low"],
+                        "default": "medium",
                         "description": (
                             "Your confidence in the answer. "
                             "high: multiple relevant sources agree. "
@@ -395,7 +396,7 @@ class WorkpediaTools:
                         "description": "List of chunk IDs used to form the answer.",
                     },
                 },
-                "required": ["answer", "confidence"],
+                "required": ["answer"],
             },
             function=self._execute_complete,
         )
@@ -403,10 +404,16 @@ class WorkpediaTools:
     def _execute_complete(
         self,
         answer: str,
-        confidence: str,
+        confidence: str = "medium",
         sources_used: Optional[List[str]] = None,
+        **kwargs,  # Accept extra args LLM might add
     ) -> Dict[str, Any]:
         """Signal completion - this is handled specially by the agent."""
+        # Normalize confidence value
+        valid_confidence = {"high", "medium", "low"}
+        if confidence not in valid_confidence:
+            confidence = "medium"
+
         return {
             "status": "complete",
             "answer": answer,
