@@ -186,3 +186,10 @@ RERANKER_TOP_K = 5  # Number of results to return after reranking
 COLLECTIONS_ENABLED = True  # Enable document collections and tags
 COLLECTIONS_DB_DIR = DATA_DIR / "collections_db"
 COLLECTIONS_DB_PATH = str(COLLECTIONS_DB_DIR / "collections.sqlite3")
+
+# Agent settings
+AGENT_ENABLED = True  # Enable agentic query mode
+AGENT_MODEL = "mistral-nemo"  # Model with native tool support (recommended)
+AGENT_MAX_ITERATIONS = 10  # Maximum tool call iterations per query
+AGENT_TEMPERATURE = 0.1  # Lower temperature for more deterministic tool use
+AGENT_TIMEOUT = 300.0  # Timeout for agent queries (seconds)

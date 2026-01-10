@@ -2,11 +2,14 @@
 
 import json
 import logging
+from dataclasses import dataclass, field
 from typing import Any, Dict, Generator, List, Optional
 
 import requests
 
 from config.config import (
+    AGENT_TEMPERATURE,
+    AGENT_TIMEOUT,
     CACHE_DIR,
     CACHE_ENABLED,
     CACHE_LLM_TTL,
@@ -40,6 +43,39 @@ from core.resilience import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ToolCall:
+    """Represents a tool call from the LLM."""
+
+    id: str
+    name: str
+    arguments: Dict[str, Any]
+
+    @classmethod
+    def from_ollama_response(cls, tool_call: Dict[str, Any]) -> "ToolCall":
+        """Create ToolCall from Ollama API response format."""
+        function = tool_call.get("function", {})
+        return cls(
+            id=tool_call.get("id", f"call_{id(tool_call)}"),
+            name=function.get("name", ""),
+            arguments=function.get("arguments", {}),
+        )
+
+
+@dataclass
+class ChatResponse:
+    """Response from chat completion, potentially including tool calls."""
+
+    content: str = ""
+    tool_calls: List[ToolCall] = field(default_factory=list)
+    done: bool = False
+
+    @property
+    def has_tool_calls(self) -> bool:
+        """Check if response contains tool calls."""
+        return len(self.tool_calls) > 0
 
 
 class OllamaClient:
@@ -486,6 +522,173 @@ class OllamaClient:
         except requests.RequestException as e:
             logger.error(f"Streaming chat failed: {e}")
             raise OllamaGenerationError(reason=str(e), model=self.model) from e
+
+    def chat_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        model: Optional[str] = None,
+        temperature: float = None,
+    ) -> ChatResponse:
+        """
+        Chat completion with tool calling support.
+
+        Args:
+            messages: Conversation history including system, user, assistant, and tool messages
+            tools: List of tool schemas in OpenAI function calling format
+            model: Model to use (defaults to self.model)
+            temperature: Sampling temperature (defaults to AGENT_TEMPERATURE)
+
+        Returns:
+            ChatResponse with content and/or tool_calls
+        """
+        model = model or self.model
+        temperature = temperature if temperature is not None else AGENT_TEMPERATURE
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "tools": tools,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+            },
+        }
+
+        def _chat_with_tools_internal() -> ChatResponse:
+            try:
+                response = requests.post(
+                    f"{self.base_url}/api/chat",
+                    json=payload,
+                    timeout=AGENT_TIMEOUT,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                message = data.get("message", {})
+                content = message.get("content", "")
+
+                # Parse tool calls if present
+                tool_calls = []
+                raw_tool_calls = message.get("tool_calls", [])
+                for tc in raw_tool_calls:
+                    tool_calls.append(ToolCall.from_ollama_response(tc))
+
+                return ChatResponse(
+                    content=content,
+                    tool_calls=tool_calls,
+                    done=data.get("done", True),
+                )
+
+            except requests.Timeout as e:
+                logger.error(f"Tool chat timed out after {AGENT_TIMEOUT}s: {e}")
+                raise OllamaTimeoutError(timeout=AGENT_TIMEOUT, model=model) from e
+            except requests.ConnectionError as e:
+                logger.error(f"Connection failed: {e}")
+                raise OllamaConnectionError(
+                    base_url=self.base_url, reason="Connection failed during tool chat"
+                ) from e
+            except requests.RequestException as e:
+                logger.error(f"Tool chat failed: {e}")
+                raise OllamaGenerationError(reason=str(e), model=model) from e
+
+        # Apply circuit breaker if enabled
+        if self.enable_circuit_breaker and self.circuit_breaker:
+            _chat_with_tools_internal = self.circuit_breaker.call(_chat_with_tools_internal)
+
+        # Apply retry logic if enabled
+        if self.enable_retry:
+
+            @retry_with_backoff(
+                config=self.retry_config,
+                retryable_exceptions=(
+                    OllamaConnectionError,
+                    OllamaTimeoutError,
+                    requests.Timeout,
+                    requests.ConnectionError,
+                ),
+            )
+            def _with_retry():
+                return _chat_with_tools_internal()
+
+            return _with_retry()
+        else:
+            return _chat_with_tools_internal()
+
+    def chat_with_tools_stream(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        model: Optional[str] = None,
+        temperature: float = None,
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Streaming chat completion with tool calling support.
+
+        Args:
+            messages: Conversation history
+            tools: List of tool schemas
+            model: Model to use (defaults to self.model)
+            temperature: Sampling temperature
+
+        Yields:
+            Chunks with type 'content', 'tool_call', or 'done'
+        """
+        model = model or self.model
+        temperature = temperature if temperature is not None else AGENT_TEMPERATURE
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "tools": tools,
+            "stream": True,
+            "options": {
+                "temperature": temperature,
+            },
+        }
+
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/chat",
+                json=payload,
+                stream=True,
+                timeout=AGENT_TIMEOUT,
+            )
+            response.raise_for_status()
+
+            for line in response.iter_lines():
+                if line:
+                    data = json.loads(line)
+                    message = data.get("message", {})
+
+                    # Yield content if present
+                    if message.get("content"):
+                        yield {"type": "content", "content": message["content"]}
+
+                    # Yield tool calls if present
+                    if message.get("tool_calls"):
+                        for tc in message["tool_calls"]:
+                            yield {
+                                "type": "tool_call",
+                                "tool_call": ToolCall.from_ollama_response(tc),
+                            }
+
+                    # Signal completion
+                    if data.get("done", False):
+                        yield {"type": "done"}
+                        break
+
+        except requests.Timeout as e:
+            logger.error(f"Streaming tool chat timed out after {AGENT_TIMEOUT}s: {e}")
+            raise OllamaTimeoutError(timeout=AGENT_TIMEOUT, model=model) from e
+        except requests.ConnectionError as e:
+            logger.error(f"Connection failed: {e}")
+            raise OllamaConnectionError(
+                base_url=self.base_url, reason="Connection failed during streaming tool chat"
+            ) from e
+        except requests.RequestException as e:
+            logger.error(f"Streaming tool chat failed: {e}")
+            raise OllamaGenerationError(reason=str(e), model=model) from e
 
     def get_cache_stats(self) -> dict:
         """Get cache statistics.

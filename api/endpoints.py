@@ -52,11 +52,17 @@ document_indexer: Optional[DocumentIndexer] = None
 history_store: Optional[HistoryStore] = None
 collection_manager: Optional[CollectionManager] = None
 
+# Agent instance (for agentic query mode)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from core.agent import WorkpediaAgent
+workpedia_agent: Optional["WorkpediaAgent"] = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup."""
-    global query_engine, document_indexer, history_store, collection_manager
+    global query_engine, document_indexer, history_store, collection_manager, workpedia_agent
 
     logger.info("Initializing Workpedia API...")
 
@@ -108,11 +114,29 @@ async def lifespan(app: FastAPI):
             embedder=query_engine.embedder,
         )
 
+        # Step 4: Initialize agent (optional, for agentic query mode)
+        try:
+            from config.config import AGENT_ENABLED, AGENT_MODEL
+            if AGENT_ENABLED:
+                from core.agent import WorkpediaAgent
+                workpedia_agent = WorkpediaAgent(
+                    llm_client=ollama_client,
+                    vector_store=query_engine.vector_store,
+                    embedder=query_engine.embedder,
+                )
+                logger.info(f"✓ Agent initialized (model: {AGENT_MODEL})")
+            else:
+                logger.info("  - Agent: Disabled in config")
+        except Exception as e:
+            logger.warning(f"Agent initialization failed (non-critical): {e}")
+            workpedia_agent = None
+
         logger.info("✓ Workpedia API initialized successfully")
         logger.info(f"  - Vector Store: {query_engine.vector_store.count} chunks indexed")
         logger.info(f"  - LLM: {health['model_name']}")
         logger.info(f"  - Embedder: {query_engine.embedder.model_name}")
         logger.info("  - History: Auto-save enabled")
+        logger.info(f"  - Agent: {'Enabled' if workpedia_agent else 'Disabled'}")
 
     except Exception as e:
         logger.error(f"Failed to initialize Workpedia API: {e}")
@@ -549,6 +573,49 @@ class SearchResult(BaseModel):
     similarity: float
 
 
+class AgentQueryRequest(BaseModel):
+    """Request model for agent queries."""
+
+    question: str = Field(
+        ..., description="Question to ask the agent", min_length=1, max_length=5000
+    )
+    doc_id: Optional[str] = Field(None, description="Optional: limit to specific document")
+    max_iterations: Optional[int] = Field(
+        None, ge=1, le=20, description="Maximum tool call iterations"
+    )
+
+    @field_validator("question")
+    @classmethod
+    def validate_question(cls, v):
+        """Validate and sanitize query string."""
+        try:
+            return validate_query(v, min_length=1, max_length=5000)
+        except ValueError as e:
+            raise ValueError(f"Invalid question: {e}")
+
+
+class AgentToolCall(BaseModel):
+    """Tool call made by the agent."""
+
+    iteration: int
+    tool: str
+    arguments: dict
+
+
+class AgentQueryResponse(BaseModel):
+    """Response model for agent queries."""
+
+    status: str = Field(..., description="Agent status: complete, failed, max_iterations")
+    answer: Optional[str] = Field(None, description="Final answer from agent")
+    confidence: Optional[str] = Field(None, description="Confidence level: high, medium, low")
+    sources: List[str] = Field(default_factory=list, description="Source chunk IDs used")
+    iterations: int = Field(..., description="Number of iterations taken")
+    tool_calls: List[AgentToolCall] = Field(
+        default_factory=list, description="Log of tool calls made"
+    )
+    error: Optional[str] = Field(None, description="Error message if failed")
+
+
 class HistoryQueryResponse(BaseModel):
     """History query response."""
 
@@ -673,6 +740,144 @@ async def search_documents(request: SearchRequest):
     except Exception as e:
         logger.error(f"Search failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Agent Query Endpoints
+# =============================================================================
+
+
+@app.post("/agent/query", response_model=AgentQueryResponse, tags=["Agent"])
+async def agent_query(request: AgentQueryRequest):
+    """
+    Query documents using the agentic interface.
+
+    The agent will search, reason, and iterate until it finds an answer.
+    Unlike the standard /query endpoint, the agent can:
+    - Make multiple searches with different queries
+    - Adjust its approach based on initial results
+    - Provide confidence-based answers
+
+    Returns the final answer along with tool call history.
+    """
+    if workpedia_agent is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Agent not initialized. Enable AGENT_ENABLED in config or check agent model availability.",
+        )
+
+    try:
+        # Run agent with optional max_iterations override
+        from config.config import AGENT_MAX_ITERATIONS
+
+        max_iter = request.max_iterations or AGENT_MAX_ITERATIONS
+
+        # Create agent with custom max_iterations if needed
+        if request.max_iterations and request.max_iterations != AGENT_MAX_ITERATIONS:
+            from core.agent import WorkpediaAgent
+
+            custom_agent = WorkpediaAgent(
+                llm_client=workpedia_agent.llm,
+                vector_store=workpedia_agent.tools.vector_store,
+                embedder=workpedia_agent.tools.embedder,
+                max_iterations=request.max_iterations,
+            )
+            result = custom_agent.run(request.question)
+        else:
+            result = workpedia_agent.run(request.question)
+
+        return AgentQueryResponse(
+            status=result.status.value,
+            answer=result.answer,
+            confidence=result.confidence,
+            sources=result.sources,
+            iterations=result.iterations,
+            tool_calls=[
+                AgentToolCall(
+                    iteration=tc["iteration"],
+                    tool=tc["tool"],
+                    arguments=tc["arguments"],
+                )
+                for tc in result.tool_calls
+            ],
+            error=result.error,
+        )
+
+    except Exception as e:
+        logger.error(f"Agent query failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/agent/query/stream", tags=["Agent"])
+async def agent_query_stream(request: AgentQueryRequest):
+    """
+    Streaming agent query - returns events as they happen.
+
+    Events are Server-Sent Events (SSE) with the following types:
+    - iteration_start: Agent starting a new iteration
+    - thinking: Agent reasoning text
+    - tool_call: Agent calling a tool
+    - tool_result: Result from tool execution
+    - complete: Final result
+    - error: Error occurred
+    - max_iterations: Agent reached max iterations
+
+    Use this for real-time visibility into agent reasoning.
+    """
+    if workpedia_agent is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Agent not initialized. Enable AGENT_ENABLED in config.",
+        )
+
+    import json
+
+    async def event_generator():
+        try:
+            for event in workpedia_agent.run_stream(request.question):
+                # Format as SSE
+                event_data = json.dumps(event, default=str)
+                yield f"data: {event_data}\n\n"
+
+                # Check for terminal events
+                if event.get("type") in ("complete", "max_iterations", "error"):
+                    break
+
+        except Exception as e:
+            logger.error(f"Agent stream failed: {e}")
+            error_event = json.dumps({"type": "error", "error": str(e)})
+            yield f"data: {error_event}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.get("/agent/status", tags=["Agent"])
+async def agent_status():
+    """
+    Check agent status and configuration.
+
+    Returns whether the agent is available and its configuration.
+    """
+    from config.config import AGENT_ENABLED, AGENT_MAX_ITERATIONS, AGENT_MODEL
+
+    return {
+        "enabled": AGENT_ENABLED,
+        "initialized": workpedia_agent is not None,
+        "model": AGENT_MODEL,
+        "max_iterations": AGENT_MAX_ITERATIONS,
+        "tools": (
+            [t.name for t in workpedia_agent.tools.get_tools()]
+            if workpedia_agent
+            else []
+        ),
+    }
 
 
 # =============================================================================
@@ -1993,6 +2198,7 @@ async def root():
         "bookmarks": "/bookmarks",
         "collections": "/collections",
         "tags": "/tags",
+        "agent": "/agent/query",
     }
 
 
