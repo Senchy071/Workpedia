@@ -19,8 +19,9 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 | 16| Vector Store Backup       | ✅ Complete  | `storage/backup.py`                             |
 | 18| Performance Caching       | ✅ Complete  | `core/caching.py`                               |
 | 14| Custom Embedding Models   | ✅ Complete  | `config/config.py`, `core/embedder.py`          |
+| 19| Agent Mode (Tool Calling) | ✅ Complete  | `core/agent.py`, `core/agent_tools.py`          |
 
-**Progress**: 6/6 HIGH PRIORITY + Collections + Reranking + Backup + Caching + Custom Embeddings implemented
+**Progress**: 6/6 HIGH PRIORITY + Collections + Reranking + Backup + Caching + Custom Embeddings + Agent Mode implemented
 
 ---
 
@@ -222,6 +223,47 @@ This document outlines proposed enhancements to the Workpedia RAG application, o
 - `RERANKER_MODEL`: Cross-encoder model (default: ms-marco-MiniLM-L-6-v2)
 - `RERANKER_TOP_N`: Candidates to retrieve for reranking (default: 20)
 - `RERANKER_TOP_K`: Results to return after reranking (default: 5)
+
+**Effort**: Medium | **Impact**: High
+
+---
+
+### 19. Agent Mode (Agentic Query Layer) ✅ IMPLEMENTED
+**Why**: Transform from fixed pipeline to autonomous reasoning agent
+
+**Features:**
+- Autonomous agent that uses tools to reason and search iteratively
+- Tool calling via Ollama with mistral-nemo model (native tools support)
+- 6 available tools:
+  - `search_documents`: Semantic search across documents
+  - `get_document_summary`: Get document executive summary
+  - `list_documents`: List all indexed documents
+  - `read_chunk`: Read full chunk content by ID
+  - `get_document_info`: Get document metadata and structure
+  - `complete`: Signal task completion with answer
+- Agent loop: Reason → Act → Observe → Repeat until complete
+- Real-time streaming of agent activity
+- Configurable max iterations and temperature
+
+**Implementation:**
+- `core/agent.py`: WorkpediaAgent orchestrator with run loop
+- `core/agent_tools.py`: Tool definitions and execution
+- `core/llm.py`: Extended with `chat_with_tools()` for tool calling
+- `api/endpoints.py`: Agent endpoints (`/agent/query`, `/agent/query/stream`, `/agent/status`)
+- `app.py`: Agent Mode toggle in Streamlit UI
+- `tests/test_agent.py`: 26 comprehensive tests (all passing)
+
+**Configuration:**
+- `AGENT_ENABLED`: Enable agent functionality (default: True)
+- `AGENT_MODEL`: Model with tool support (default: mistral-nemo)
+- `AGENT_MAX_ITERATIONS`: Maximum tool call iterations (default: 10)
+- `AGENT_TEMPERATURE`: Temperature for reasoning (default: 0.1)
+- `AGENT_TIMEOUT`: Timeout in seconds (default: 300.0)
+
+**API Endpoints:**
+- `POST /agent/query` - Synchronous agentic query
+- `POST /agent/query/stream` - Streaming with real-time tool call updates
+- `GET /agent/status` - Check agent availability and configuration
 
 **Effort**: Medium | **Impact**: High
 
@@ -508,5 +550,5 @@ No critical TODOs or incomplete core features were found. All proposed features 
 
 ---
 
-*Document updated: 2025-12-27*
-*Workpedia Version: 1.3 (Core + Additional Features + XLSX/CSV + Custom Embeddings)*
+*Document updated: 2026-01-11*
+*Workpedia Version: 1.4 (Core + Additional Features + XLSX/CSV + Custom Embeddings + Agent Mode)*

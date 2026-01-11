@@ -17,10 +17,11 @@ This guide will help you get started with Workpedia and make the most of its fea
 7. [Document Summaries](#document-summaries)
 8. [Query Suggestions](#query-suggestions)
 9. [Hybrid Search](#hybrid-search)
-10. [Configuration](#configuration)
-11. [Advanced Features](#advanced-features)
-12. [Troubleshooting](#troubleshooting)
-13. [Best Practices](#best-practices)
+10. [Agent Mode](#agent-mode)
+11. [Configuration](#configuration)
+12. [Advanced Features](#advanced-features)
+13. [Troubleshooting](#troubleshooting)
+14. [Best Practices](#best-practices)
 
 ---
 
@@ -704,6 +705,135 @@ The keyword search index is automatically:
 - Best for mixed query types (concepts + exact matches)
 - BM25 index grows with your documents
 - Restart not needed - index updates in real-time
+
+---
+
+## Agent Mode
+
+Workpedia includes an **Agent Mode** that transforms the system from a fixed RAG pipeline into an autonomous agent that reasons, searches, and synthesizes answers iteratively.
+
+### How It Works
+
+In Agent Mode, the LLM operates in a loop:
+1. **Reason**: Understand what information is needed
+2. **Act**: Call tools to search documents, get summaries, or list documents
+3. **Observe**: Analyze tool results
+4. **Repeat**: Continue until enough information is gathered
+5. **Complete**: Signal completion with a synthesized answer
+
+### Available Agent Tools
+
+| Tool | Description |
+|------|-------------|
+| `search_documents` | Semantic search across all indexed documents |
+| `get_document_summary` | Get auto-generated executive summary of a document |
+| `list_documents` | List all available indexed documents |
+| `read_chunk` | Read full content of a specific chunk by ID |
+| `get_document_info` | Get detailed document metadata and structure |
+| `complete` | Signal task completion with final answer |
+
+### Enabling Agent Mode
+
+#### Via Web UI
+
+1. Open the sidebar settings
+2. Toggle **Agent Mode** to ON
+3. Optionally adjust **Max Iterations** (default: 10)
+4. Ask your question as usual
+
+The UI will show real-time agent activity:
+- Which tools are being called
+- Arguments passed to each tool
+- Results from each tool call
+- Final synthesized answer
+
+#### Via API
+
+```bash
+# Synchronous agentic query
+curl -X POST "http://localhost:8000/agent/query" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Compare the main topics across all documents"
+  }'
+
+# Streaming agentic query (real-time updates)
+curl -X POST "http://localhost:8000/agent/query/stream" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What documents mention logistics?"
+  }'
+
+# Check agent status
+curl http://localhost:8000/agent/status
+```
+
+#### Via Python
+
+```python
+from core.agent import create_agent
+
+# Create agent with default settings
+agent = create_agent()
+
+# Run a query
+result = agent.run("What are the key findings across all documents?")
+
+print(f"Answer: {result.answer}")
+print(f"Confidence: {result.confidence}")
+print(f"Iterations: {result.iterations}")
+print(f"Tools used: {len(result.tool_calls)}")
+```
+
+### When to Use Agent Mode
+
+**Use Agent Mode when:**
+- Questions require information from multiple documents
+- You need the system to explore and discover relevant content
+- Complex queries that benefit from iterative reasoning
+- You want to see the agent's search strategy
+
+**Use Standard Mode when:**
+- Simple, direct questions about specific content
+- You know exactly which document has the answer
+- Speed is more important than thoroughness
+- Queries about a single, well-defined topic
+
+### Agent Configuration
+
+```python
+# config/config.py
+AGENT_ENABLED = True           # Enable agent functionality
+AGENT_MODEL = "mistral-nemo"   # Model with native tool support
+AGENT_MAX_ITERATIONS = 10      # Maximum tool call iterations
+AGENT_TEMPERATURE = 0.1        # Low temperature for focused reasoning
+AGENT_TIMEOUT = 300.0          # Timeout in seconds
+```
+
+### Agent Response Format
+
+```json
+{
+  "status": "complete",
+  "answer": "Based on my analysis of the documents...",
+  "confidence": "high",
+  "sources": ["chunk_id_1", "chunk_id_2"],
+  "iterations": 3,
+  "tool_calls": [
+    {"iteration": 1, "tool": "list_documents", "arguments": {}},
+    {"iteration": 2, "tool": "search_documents", "arguments": {"query": "..."}},
+    {"iteration": 3, "tool": "complete", "arguments": {"answer": "..."}}
+  ]
+}
+```
+
+### Tips for Agent Mode
+
+- **Be specific**: Clear questions help the agent search effectively
+- **Watch iterations**: If hitting max iterations, try rephrasing
+- **Check tool calls**: Review the agent's search strategy in the response
+- **Use for exploration**: Great for "what's in these documents" questions
+- **Combine with filters**: Use collection/tag filters to focus agent searches
 
 ---
 

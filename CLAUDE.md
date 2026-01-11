@@ -34,6 +34,7 @@ Workpedia is a privacy-focused RAG (Retrieval-Augmented Generation) application 
 - **Embeddings**: sentence-transformers/all-mpnet-base-v2 (768-dimensional)
 - **Vector Store**: ChromaDB for similarity search
 - **LLM**: Ollama + Mistral 7B (local generation)
+- **Agent**: Ollama + mistral-nemo (agentic reasoning with tool calling)
 - **Chunking**: Semantic/hierarchical chunking preserving document structure
 
 ## Architecture
@@ -79,6 +80,7 @@ Feature Settings:
 - Cross-Encoder Reranking: Enabled by default, top 20 candidates, return top 5
 - Document Collections: Enabled by default, SQLite persistence
 - Query History: Auto-save enabled, session tracking enabled
+- Agent Mode: Enabled by default, mistral-nemo model, max 10 iterations, temperature 0.1
 
 ## Development Commands
 
@@ -212,19 +214,33 @@ timeout 30 ollama run mistral "test prompt"
   - Streaming and non-streaming generation
   - Chat completion support
   - RAG prompt templates
+  - Tool calling support (`chat_with_tools()`) for agentic workflows
 - `core/query_engine.py`: QueryEngine for RAG queries
   - Combines retrieval + generation
   - Source citation and formatting
   - Health checks
   - Summary query detection for "what's in this document" queries
+- `core/agent.py`: WorkpediaAgent for agentic queries
+  - Autonomous agent loop (reason → act → observe → repeat)
+  - Uses tool calling with mistral-nemo model
+  - Configurable max iterations and temperature
+  - Streaming and non-streaming modes
+- `core/agent_tools.py`: Agent tools
+  - search_documents: Semantic search across documents
+  - get_document_summary: Get document executive summary
+  - list_documents: List all indexed documents
+  - read_chunk: Read full chunk content by ID
+  - get_document_info: Get document metadata
+  - complete: Signal task completion with answer
 - `api/endpoints.py`: FastAPI REST API
   - Query endpoints (sync and streaming)
+  - Agent endpoints (/agent/query, /agent/query/stream, /agent/status)
   - Document management (upload, index, delete)
   - Document summary endpoint
   - System stats and health checks
   - OpenAPI documentation at /docs
 
-**Additional Features** (6 HIGH PRIORITY + COLLECTIONS + RERANKING + BACKUP + CACHING COMPLETE):
+**Additional Features** (6 HIGH PRIORITY + COLLECTIONS + RERANKING + BACKUP + CACHING + AGENT MODE COMPLETE):
 
 1. `storage/history_store.py`: Query History & Bookmarks
    - Persistent SQLite storage of all queries
@@ -291,6 +307,15 @@ timeout 30 ollama run mistral "test prompt"
     - Full API for collection and tag management
     - 36 comprehensive tests (all passing)
 
+11. `core/agent.py` + `core/agent_tools.py`: Agent Mode
+    - Autonomous agentic query layer with tool calling
+    - Uses mistral-nemo model with native tools support
+    - 6 tools: search_documents, get_document_summary, list_documents, read_chunk, get_document_info, complete
+    - Agent loop: reason → act → observe → repeat until complete
+    - Streamlit UI toggle for agent mode
+    - API endpoints: /agent/query, /agent/query/stream, /agent/status
+    - 26 comprehensive tests (all passing)
+
 **Large Document Strategy** (Split-Process-Merge):
 
 1. PDFSplitter splits large PDFs into 75-page chunks
@@ -307,7 +332,7 @@ timeout 30 ollama run mistral "test prompt"
 **Testing**:
 
 ```bash
-# Run all tests (430+ tests)
+# Run all tests (450+ tests)
 pytest tests/
 
 # Run parser-specific tests
@@ -330,6 +355,7 @@ pytest tests/test_reranker.py -v          # Cross-encoder reranking
 pytest tests/test_collections.py -v       # Document collections and tags
 pytest tests/test_xlsx_processor.py -v    # Excel file processing
 pytest tests/test_csv_processor.py -v     # CSV/TSV file processing
+pytest tests/test_agent.py -v             # Agent mode and tools
 
 # Run integration tests
 pytest tests/test_integration.py -v

@@ -11,6 +11,7 @@ Workpedia is a privacy-focused RAG application that processes complex documents 
 - **Vector Storage**: ChromaDB for efficient similarity search
 - **Embeddings**: sentence-transformers/all-mpnet-base-v2 for high-quality semantic representations
 - **LLM Generation**: Ollama + Mistral 7B for local, privacy-preserving text generation
+- **Agent Mode**: Autonomous agent with tool calling that reasons, searches, and synthesizes answers iteratively
 - **Performance Caching**: Intelligent caching of embeddings and LLM responses for 2-3x speedup on repeated queries
 - **Vector Store Backup**: Automated backup and restore with versioning, compression, and retention policies
 - **Confidence Scoring**: Answer reliability indicators (🟢 High / 🟡 Medium / 🔴 Low) based on source quality
@@ -39,8 +40,10 @@ workpedia/
 │   ├── doc_merger.py    # Merge parsed chunk results
 │   ├── chunker.py       # SemanticChunker for structure-aware chunking
 │   ├── embedder.py      # Embedder for semantic vector generation
-│   ├── llm.py           # OllamaClient for LLM integration
+│   ├── llm.py           # OllamaClient for LLM integration (with tool calling)
 │   ├── query_engine.py  # RAG query engine
+│   ├── agent.py         # Agent orchestrator with tool-based reasoning
+│   ├── agent_tools.py   # Agent tools (search, summarize, list, complete)
 │   ├── caching.py       # Performance caching for embeddings and LLM responses
 │   ├── confidence.py    # Answer confidence scoring
 │   ├── summarizer.py    # Document summary generation
@@ -66,7 +69,7 @@ workpedia/
 ├── api/                 # API endpoints and query interface
 │   └── endpoints.py     # FastAPI REST API
 ├── app.py               # Streamlit web UI
-├── tests/               # Test files (430+ tests)
+├── tests/               # Test files (450+ tests)
 ├── data/                # Sample data and test documents
 │   ├── input/           # Input documents for testing
 │   └── output/          # Processed output
@@ -116,7 +119,7 @@ ollama pull mistral
 pytest tests/ -v
 ```
 
-All 430+ tests should pass.
+All 450+ tests should pass.
 
 ## Usage
 
@@ -136,8 +139,9 @@ streamlit run app.py
 The UI will open at `http://localhost:8501` with features:
 - 📤 **Upload Documents**: Drag & drop PDF, DOCX, XLSX, CSV, or HTML files
 - 💬 **Chat Interface**: Ask questions about your documents
+- 🤖 **Agent Mode**: Enable autonomous agent that uses tools to search and reason iteratively
 - 📊 **Statistics**: View indexed documents and system stats
-- ⚙️ **Settings**: Adjust context chunks and temperature
+- ⚙️ **Settings**: Adjust context chunks, temperature, and agent settings
 
 ### Process a Document
 
@@ -265,6 +269,9 @@ API Endpoints:
 - `POST /query` - Query documents and get AI-generated answer (includes confidence score)
 - `POST /query/stream` - Streaming query response
 - `POST /search` - Semantic search without generation
+- `POST /agent/query` - Agentic query with tool-based reasoning
+- `POST /agent/query/stream` - Streaming agentic query with real-time tool call updates
+- `GET /agent/status` - Check agent availability and configuration
 - `POST /documents/index` - Index a document from filesystem (generates summary)
 - `POST /documents/upload` - Upload and index a document (generates summary)
 - `GET /documents` - List all indexed documents
@@ -389,7 +396,7 @@ Edit `config/config.py` to customize:
 - [x] Document upload and indexing API
 - [x] Health checks and system statistics
 - [x] Streamlit web UI for user-friendly document upload and Q&A
-- [x] 430+ tests passing
+- [x] 450+ tests passing
 
 ### Additional Features - Complete ✓
 
@@ -398,6 +405,7 @@ Edit `config/config.py` to customize:
 - [x] **Document Summaries**: Auto-generated executive summaries during indexing
 - [x] **Cross-Encoder Reranking**: Re-rank search results with cross-encoder for improved quality
 - [x] **Document Collections & Tags**: Organize documents with collections and tags for filtered querying
+- [x] **Agent Mode**: Autonomous agentic query layer with tool calling (mistral-nemo model)
 
 ### Production Improvements - Complete ✓
 
@@ -418,12 +426,14 @@ Edit `config/config.py` to customize:
 | Embeddings | sentence-transformers/all-mpnet-base-v2 | 768-dim semantic representations |
 | Vector DB | ChromaDB | Persistent vector storage with similarity search |
 | LLM | Ollama + Mistral 7B | Local privacy-preserving text generation |
+| Agent | Ollama + mistral-nemo | Agentic reasoning with tool calling |
 | API | FastAPI + Uvicorn | REST API with OpenAPI documentation |
 | Web UI | Streamlit | Interactive web interface for document upload and Q&A |
 
 ## Key Features
 
 - **Privacy-First**: All processing happens locally, no data sent to external APIs
+- **Agent Mode**: Autonomous agent that uses tools (search, summarize, list) to iteratively reason and find answers
 - **Performance Caching**: Automatic caching of embeddings and LLM responses for 2-3x speedup on repeated queries
 - **Vector Store Backup**: Full backup and restore with compression, versioning, and retention policies for data protection
 - **Structure-Aware**: Preserves document hierarchies, tables, and cross-references
